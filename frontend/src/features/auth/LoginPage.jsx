@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { ErrorState } from "../../components/ui/Feedback";
+import { AUTH_ROUTES, resolveDestination } from "./authPolicy";
 import { authService } from "./authService";
 import AuthLayout from "./AuthLayout";
 import { useAuth } from "./useAuth";
@@ -14,7 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const destination = location.state?.from || "/dashboard";
+  const destination = resolveDestination(location.state);
 
   function handleChange(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -29,7 +30,7 @@ export default function LoginPage() {
       login(payload);
       navigate(destination, { replace: true });
     } catch (requestError) {
-      setError(requestError.message || "Unable to sign in.");
+      setError(requestError?.message || "Unable to sign in.");
     } finally {
       setSubmitting(false);
     }
@@ -42,7 +43,7 @@ export default function LoginPage() {
       footer={
         <>
           <span>New to ALgotwin?</span>
-          <Link to="/register">Create an account</Link>
+          <Link to={AUTH_ROUTES.register}>Create an account</Link>
         </>
       }
       title="Sign in to your workspace."
@@ -52,6 +53,7 @@ export default function LoginPage() {
           <span>Email</span>
           <input
             autoComplete="email"
+            autoFocus
             name="email"
             onChange={handleChange}
             placeholder="you@example.com"

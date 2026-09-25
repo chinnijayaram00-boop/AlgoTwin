@@ -1867,6 +1867,22 @@ pre {
   box-shadow: 0 0 0 3px rgba(124, 108, 255, 0.16);
 }
 
+.auth-field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.auth-field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-hint {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
 .auth-submit {
   width: 100%;
   min-height: 44px;

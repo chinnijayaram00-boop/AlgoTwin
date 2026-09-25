@@ -7,7 +7,7 @@ ALgotwin is a production-oriented foundation for an AI-powered DSA learning, vis
 - Frontend: React, Vite, React Router, Monaco Editor, Recharts, ESLint, Vitest
 - Backend: FastAPI, Pydantic Settings, SQLAlchemy 2, PyJWT, pwdlib (Argon2)
 - Database: SQLite locally, PostgreSQL through `DATABASE_URL`
-- Migrations: Alembic scaffold for environment-to-environment upgrades
+- Migrations: Alembic, with a non-destructive initial baseline revision
 
 ## Repository layout
 
@@ -109,21 +109,43 @@ DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/algotwin
 `AUTO_CREATE_TABLES=true` is convenient for local development. For deployed environments, set it to `false` and use Alembic:
 
 ```powershell
-alembic revision --autogenerate -m "initial schema"
-alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-The Alembic configuration expects the project root as its working directory. Do not commit `.env`, database files, or AI keys.
+The Alembic configuration expects the project root as its working directory and reads `DATABASE_URL` from `.env`. The baseline revision `533005ea0596` creates the full schema and is safe to apply to a database that already exists: tables and indexes are created with `if_not_exists`, a pre-existing `users` table gains `name`, `password_hash`, `created_at`, and `updated_at` without dropping rows, and a legacy `display_name` column is carried over rather than discarded. `downgrade` is intentionally inert so reversing it cannot destroy learner data. Generate follow-up revisions with:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic revision --autogenerate -m "describe the change"
+```
+
+Do not commit `.env`, database files, or AI keys.
 
 ## Authentication
 
 `POST /api/v1/auth/register` and `POST /api/v1/auth/login` return a short-lived bearer token plus the public profile; `GET /api/v1/auth/me` resolves the profile from that token and `POST /api/v1/auth/logout` returns `204`.
 
-- Passwords are hashed with Argon2 through `pwdlib` and are never returned by the API.
-- Tokens are HS256 JWTs carrying `sub`, `email`, and `exp`; the signing secret comes from `JWT_SECRET_KEY` and the lifetime from `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`.
-- Emails are compared case-insensitively and stored lowercase, so `Ada@example.com` and `ada@example.com` are the same account.
-- `AUTO_CREATE_TABLES=true` and startup also apply an idempotent `users` compatibility upgrade: a legacy table with `display_name` is rebuilt into `name`, `email`, `password_hash`, `created_at`, `updated_at` while preserving existing rows, IDs, and dependent `progress` rows. Legacy rows keep a null `password_hash` and must use a password reset flow.
-- Logout is stateless. The client discards the token, but the token itself stays valid until `exp`; add a revocation list or shorten `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` if strict server-side revocation is required.
+Backend:
+
+- Passwords are hashed with Argon2id through `pwdlib` with a per-hash salt. Plaintext is never persisted, logged, or returned, and a missing or corrupt stored hash fails the login with `401` rather than a `500`.
+- `UserProfile` is an explicit projection (`id`, `name`, `email`, `created_at`, `updated_at`). `password_hash` is absent from every response schema, and the test suite fails if it ever appears in the published OpenAPI contract.
+- Tokens are JWTs signed with `JWT_SECRET_KEY` using `JWT_ALGORITHM`, valid for `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`. The payload carries only `sub`, `iat`, `exp`, `type`, and a unique `jti` — no email or name, so a leaked token discloses no personal data. Signature, algorithm, expiry, and token type are all verified, and a token naming a user that no longer exists is rejected.
+- Emails are normalized to lowercase on write and compared case-insensitively, so `Ada@example.com` and `ada@example.com` are the same account. A duplicate returns `409` whether it is caught by the pre-check or by the unique index.
+- `get_current_user` in `backend/app/api/dependencies.py` is the reusable guard. Apply it to every user-specific route. `health` and `health/ready` stay public.
+- `AUTO_CREATE_TABLES=true` and startup also apply an idempotent `users` compatibility upgrade: a legacy table with `display_name` is rebuilt into `name`, `email`, `password_hash`, `created_at`, `updated_at` while preserving existing rows, IDs, and dependent `progress` rows. Legacy rows keep a null `password_hash` and cannot sign in until a password is set.
+- Without a usable `JWT_SECRET_KEY` the auth routes return `503` rather than issuing or trusting anything.
+
+Frontend:
+
+- `AuthProvider` owns the session. The token lives in `localStorage` under `algotwin.auth.token`; on start-up it calls `/auth/me` to confirm the token is still usable, and a rejected token is discarded, which is how an expired session signs the user out.
+- `ProtectedRoute` guards every workspace page and redirects anonymous visitors to `/login`, carrying the requested path so login returns them there. While the stored token is being revalidated it renders a loading state, so refreshing a deep link does not bounce the user to the sign-in form. `PublicOnlyRoute` keeps a signed-in user away from `/login` and `/register`.
+- The password policy lives in `frontend/src/features/auth/authPolicy.js` and mirrors the backend contract; the API re-validates regardless.
+- The topbar shows the signed-in learner's name, email, and initials, with a sign-out control.
+
+Limitations:
+
+- Logout is stateless. The client discards the token, but the token itself stays valid until `exp`. Add a revocation list keyed on `jti`, or shorten `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, if strict server-side revocation is required.
+- There is no rate limiting on `/auth/login` or `/auth/register`, no refresh-token rotation, no email verification, and no password reset. A reverse proxy or API gateway should throttle the auth routes before exposing them publicly.
+- `OAuth2PasswordBearer` is configured for the Swagger "Authorize" button, but login accepts a JSON body, so interactive Swagger authorization does not apply.
 
 ## API foundation
 
