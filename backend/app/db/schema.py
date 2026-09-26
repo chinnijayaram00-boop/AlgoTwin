@@ -1,4 +1,4 @@
-from database.models.progress import LEGACY_STATUS_MAP, PROGRESS_STATUS_VALUES
+﻿from database.models.progress import LEGACY_STATUS_MAP, PROGRESS_STATUS_VALUES
 from sqlalchemy import DateTime, String, inspect, text
 from sqlalchemy.engine import Engine
 
@@ -134,11 +134,21 @@ def _status_backfill_case() -> str:
 def ensure_progress_schema(bind: Engine) -> None:
     """Bring an adopted ``progress`` table up to the learner progress shape.
 
-    Mirrors the Alembic revision ``b_progress_learner_tracking`` so a
+    Mirrors the Alembic revision ``b_progress_learner_tracking``, so a
     ``AUTO_CREATE_TABLES=true`` development database and a migrated deployed
-    database end up identical. The upgrade is additive and idempotent: no row
-    is deleted, and every legacy column is left in place for a later revision
-    to drop once no deployment still carries it.
+    database end up with the same columns, indexes, and backfilled values. The
+    upgrade is additive and idempotent: no row is deleted, and every legacy
+    column is left in place for a later revision to drop once no deployment
+    still carries it.
+
+    The one intentional difference is the ``ck_progress_status`` CHECK. Alembic
+    can attach it to an adopted SQLite table by rebuilding it, and does. Here
+    the rebuild is deliberately avoided, because this path runs automatically
+    at start-up against a developer's live file, and rebuilding a table to add
+    a constraint is not a risk worth taking without a migration to back it up.
+    On PostgreSQL the CHECK is added directly, as in the migration. On SQLite
+    the vocabulary is still enforced by the strict status validation in the
+    progress service, so an unknown label cannot be stored through the API.
     """
     inspector = inspect(bind)
     if "progress" not in inspector.get_table_names():
@@ -149,6 +159,9 @@ def ensure_progress_schema(bind: Engine) -> None:
         for column, ddl in PROGRESS_ADDED_COLUMNS:
             if column not in existing_columns:
                 connection.execute(text(f'ALTER TABLE progress ADD COLUMN "{column}" {ddl}'))
+            # The column now exists, so later steps in this same pass can rely on
+            # it just as safely as one that was already in the table.
+            existing_columns.add(column)
 
         # A row that predates the release has no separate creation or attempt
         # timestamps, so the best available evidence is its last update.

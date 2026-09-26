@@ -69,6 +69,10 @@ def _add_missing_columns(existing: set[str]) -> None:
     for column, ddl in ADDED_COLUMNS:
         if column not in existing:
             connection.execute(sa.text(f'ALTER TABLE progress ADD COLUMN "{column}" {ddl}'))
+        # The column now exists, so the backfill in this same pass can rely on
+        # it. Without this a single ``alembic upgrade`` would leave a recorded
+        # ``best_time_ms`` behind instead of carrying it across.
+        existing.add(column)
 
 
 def _backfill(existing: set[str]) -> None:
@@ -124,17 +128,36 @@ def _backfill(existing: set[str]) -> None:
 
 
 def _add_status_check() -> None:
-    if op.get_bind().dialect.name != "postgresql":
-        return
+    """Add the status vocabulary as a real database constraint.
+
+    The application already rejects an unknown status, but a constraint is the
+    last line of defence: it holds for any writer, including a direct SQL
+    session or a future import script. It is applied on every backend so a
+    migrated database matches one built by ``create_all``.
+
+    SQLite cannot ``ALTER TABLE ... ADD CONSTRAINT``, so the constraint is added
+    through batch mode, which rebuilds the table and copies the rows across.
+    PostgreSQL gets the cheap direct ``ALTER``.
+    """
+    bind = op.get_bind()
     names = {
-        constraint["name"] for constraint in sa.inspect(op.get_bind()).get_check_constraints("progress")
+        constraint["name"]
+        for constraint in sa.inspect(bind).get_check_constraints("progress")
     }
     if "ck_progress_status" in names:
         return
+
     values = ", ".join(f"'{value}'" for value in PROGRESS_STATUS_VALUES)
-    op.execute(
-        sa.text(f"ALTER TABLE progress ADD CONSTRAINT ck_progress_status CHECK (status IN ({values}))")
-    )
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            sa.text(f"ALTER TABLE progress ADD CONSTRAINT ck_progress_status CHECK (status IN ({values}))")
+        )
+        return
+
+    with op.batch_alter_table("progress") as batch_op:
+        batch_op.create_check_constraint(
+            "ck_progress_status", sa.text(f"status IN ({values})")
+        )
 
 
 def upgrade() -> None:
@@ -175,10 +198,13 @@ def upgrade() -> None:
     existing = _existing_column_names("progress")
     _add_missing_columns(existing)
     _backfill(existing)
+    # The constraint is added first: on SQLite it rebuilds the table, and doing
+    # that before the composite index keeps the index definition applied to the
+    # final table shape.
+    _add_status_check()
     op.create_index(
         "ix_progress_user_status", "progress", ["user_id", "status"], unique=False, if_not_exists=True
     )
-    _add_status_check()
 
 
 def downgrade() -> None:

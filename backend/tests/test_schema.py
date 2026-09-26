@@ -216,6 +216,27 @@ def test_pre_release_progress_table_is_upgraded_without_losing_learner_data() ->
     assert "ix_progress_user_status" in indexes
 
 
+def test_a_single_upgrade_carries_best_time_ms_into_best_runtime_ms() -> None:
+    """One upgrade has to backfill the runtime, not a second, later one.
+
+    ``ensure_progress_schema`` adds ``best_runtime_ms`` and then copies
+    ``best_time_ms`` into it. If the copy only looked at the columns that
+    existed *before* the upgrade, the recorded runtime would survive in the
+    legacy column but never reach the column the application reads, and a
+    single ``alembic upgrade`` or start-up would silently lose it.
+    """
+    engine = build_pre_release_engine()
+
+    ensure_progress_schema(engine)  # exactly one pass, as a deployment does
+
+    with engine.connect() as connection:
+        runtimes = connection.execute(
+            text("SELECT id, best_time_ms, best_runtime_ms FROM progress ORDER BY id")
+        ).all()
+
+    assert [tuple(row) for row in runtimes] == [(1, 150, 150), (2, None, None), (3, 90, 90)]
+
+
 def test_upgrade_is_a_no_op_without_a_progress_table() -> None:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
