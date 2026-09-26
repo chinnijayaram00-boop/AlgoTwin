@@ -3,6 +3,7 @@ import {
   ArrowRight,
   BookOpenCheck,
   BrainCircuit,
+  CircleDot,
   Code2,
   Sparkles,
   Trophy,
@@ -11,21 +12,33 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import ProgressPanel from "../features/progress/ProgressPanel";
+import { useProgressSummary } from "../features/progress/useProgress";
 import { useApiResource } from "../hooks/useApiResource";
 import { platformApi } from "../services/platformService";
 import { EmptyState, ErrorState, LoadingState, PageHeader, SectionCard, StatusPill } from "../components/ui/Feedback";
+import { useAuth } from "../features/auth/useAuth";
 
 const difficultyOrder = ["Easy", "Medium", "Hard"];
 
 export default function DashboardPage() {
+  const { isAuthenticated } = useAuth();
   const loadSummary = useCallback(() => platformApi.dashboardSummary(), []);
   const loadHealth = useCallback(() => platformApi.health(), []);
   const { data: summary, error, loading, reload } = useApiResource(loadSummary);
   const { data: health } = useApiResource(loadHealth);
+  const {
+    data: progress,
+    error: progressError,
+    errorStatus: progressErrorStatus,
+    loading: progressLoading,
+    reload: reloadProgress,
+  } = useProgressSummary({ enabled: isAuthenticated });
   const chartData = difficultyOrder.map((difficulty) => ({
     difficulty,
     problems: summary?.by_difficulty?.[difficulty] || 0,
   }));
+  const hasProgress = progress !== null && !progressLoading && !progressError;
 
   return (
     <div className="page-stack">
@@ -68,16 +81,53 @@ export default function DashboardPage() {
       </section>
 
       <div className="metrics-grid">
-        <MetricCard icon={BookOpenCheck} label="Catalog problems" value={summary?.total_problems ?? "—"} detail="Published foundations" />
-        <MetricCard icon={Code2} label="Practice mode" value="Editor" detail="Monaco workspace" />
-        <MetricCard icon={Trophy} label="Progress tracking" value="Next" detail="Auth-ready model" />
-        <MetricCard icon={Sparkles} label="AI explanations" value="Next" detail="Provider boundary" />
+        <MetricCard
+          detail={hasProgress ? "Across the published catalog" : "Catalog problems"}
+          icon={BookOpenCheck}
+          label="Total problems"
+          value={progress?.total_problems ?? summary?.total_problems ?? "—"}
+        />
+        <MetricCard
+          detail={hasProgress ? `${progress.completion_percentage}% complete` : "Logged in workspace"}
+          icon={Trophy}
+          label="Solved"
+          value={hasProgress ? progress.solved : "—"}
+        />
+        <MetricCard
+          detail={hasProgress ? "Started, not solved" : "Sign in to track"}
+          icon={CircleDot}
+          label="Attempted"
+          value={hasProgress ? progress.attempted : "—"}
+        />
+        <MetricCard
+          detail={hasProgress ? "Not opened yet" : "Provider boundary"}
+          icon={Sparkles}
+          label="Remaining"
+          value={hasProgress ? progress.not_started : "—"}
+        />
       </div>
 
       {loading ? <LoadingState label="Loading your catalog" /> : null}
       {error ? <ErrorState message={error} onRetry={reload} /> : null}
 
       <div className="dashboard-grid">
+        {isAuthenticated ? (
+          <ProgressPanel
+            error={progressError}
+            errorStatus={progressErrorStatus}
+            loading={progressLoading}
+            onRetry={reloadProgress}
+            summary={progress}
+          />
+        ) : (
+          <SectionCard description="Sign in to record progress." title="Your progress">
+            <EmptyState
+              description="Progress is stored per account, so it needs a signed-in session."
+              title="Sign in to track your progress"
+            />
+          </SectionCard>
+        )}
+
         <SectionCard description="Actual counts from the current API catalog." title="Catalog signal">
           {summary && summary.total_problems > 0 ? (
             <div className="chart-wrap">
@@ -98,7 +148,9 @@ export default function DashboardPage() {
             <EmptyState description="Publish a problem to see your catalog signal here." title="No catalog data yet" />
           )}
         </SectionCard>
+      </div>
 
+      <div className="dashboard-grid">
         <SectionCard description="The next layers are separated and ready for implementation." title="Learning loop">
           <div className="learning-loop">
             <LoopStep icon={BookOpenCheck} index="01" label="Learn" detail="Patterns and concepts" />
@@ -111,6 +163,20 @@ export default function DashboardPage() {
               {health?.status === "ok" ? "API connected" : "API status checking"}
             </StatusPill>
             <span>Local foundation is available.</span>
+          </div>
+        </SectionCard>
+
+        <SectionCard description="Pick up where you stopped, or start something new." title="Where to go next">
+          <div className="next-links">
+            <Link className="button button-secondary" to="/problems?status=not_started">
+              Browse untouched problems <ArrowRight size={16} />
+            </Link>
+            <Link className="button button-secondary" to="/problems?status=attempted">
+              Revisit attempted problems <ArrowRight size={16} />
+            </Link>
+            <Link className="button button-secondary" to="/problems?status=solved">
+              Review solved problems <ArrowRight size={16} />
+            </Link>
           </div>
         </SectionCard>
       </div>

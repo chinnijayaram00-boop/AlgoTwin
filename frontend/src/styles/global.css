@@ -758,6 +758,7 @@ pre {
 .status-pill {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   width: fit-content;
   min-height: 22px;
   padding: 0 8px;
@@ -775,6 +776,207 @@ pre {
 .status-pill.medium { color: #ffd99c; background: var(--amber-soft); border-color: rgba(244, 189, 106, 0.22); }
 .status-pill.hard { color: #ffacba; background: var(--rose-soft); border-color: rgba(239, 130, 151, 0.22); }
 .status-pill.violet { color: #d1cbff; background: var(--primary-soft); border-color: rgba(124, 108, 255, 0.24); }
+
+/* Learner progress ------------------------------------------------------ */
+
+.progress-headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.progress-headline strong {
+  display: block;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.progress-headline-detail {
+  display: block;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.progress-streak {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  color: #ffd99c;
+  font-size: 0.76rem;
+  background: var(--amber-soft);
+  border: 1px solid rgba(244, 189, 106, 0.22);
+  border-radius: 12px;
+}
+
+.progress-streak strong { font-size: 1rem; }
+
+.progress-meter {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  background: rgba(141, 154, 181, 0.12);
+  border-radius: 999px;
+}
+
+.progress-segment { display: block; height: 100%; }
+.progress-segment.solved { background: linear-gradient(90deg, #3cc9b0, #4fd6bd); }
+.progress-segment.attempted { background: linear-gradient(90deg, #f4bd6a, #f7cf94); }
+.progress-segment.not_started { background: rgba(141, 154, 181, 0.22); }
+
+.progress-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 0;
+  margin: 12px 0 20px;
+  list-style: none;
+}
+
+.progress-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.progress-legend strong { color: var(--text); }
+
+.progress-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.progress-dot.solved { background: #3cc9b0; }
+.progress-dot.attempted { background: #f4bd6a; }
+.progress-dot.not_started { background: rgba(141, 154, 181, 0.4); }
+
+.progress-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.progress-breakdown-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.progress-rows { display: grid; gap: 9px; }
+
+.progress-row {
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.78rem;
+}
+
+.progress-row > span:first-child {
+  overflow: hidden;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-row-track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  background: rgba(141, 154, 181, 0.12);
+  border-radius: 999px;
+}
+
+.progress-row-track .solved { display: block; height: 100%; background: #3cc9b0; }
+.progress-row-track .zero { display: block; height: 100%; background: rgba(141, 154, 181, 0.25); }
+
+.progress-breakdown-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.results-heading-pills { display: flex; gap: 8px; }
+
+/* Problem progress panel ------------------------------------------------ */
+
+.problem-progress { display: grid; gap: 14px; }
+
+.problem-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.problem-progress-status-note {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.problem-progress-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 14px 0;
+  margin: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.problem-progress-facts div { display: grid; gap: 4px; }
+
+.problem-progress-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.problem-progress-facts dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.problem-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.problem-progress-saving {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.problem-progress-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
 
 .next-step-banner {
   display: flex;

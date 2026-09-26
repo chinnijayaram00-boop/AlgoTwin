@@ -1,30 +1,58 @@
 import { Filter, Search, SlidersHorizontal } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import ProblemCard from "../features/problems/ProblemCard";
+import ProgressStatusPill from "../features/progress/ProgressStatusPill";
+import { useProgressList } from "../features/progress/useProgress";
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusPill } from "../components/ui/Feedback";
-import { useApiResource } from "../hooks/useApiResource";
-import { problemApi } from "../services/platformService";
 
 const difficulties = ["All", "Easy", "Medium", "Hard"];
+const statusFilters = [
+  { id: "all", label: "All" },
+  { id: "not_started", label: "Not Started" },
+  { id: "attempted", label: "Attempted" },
+  { id: "solved", label: "Solved" },
+];
 
+function initialSelection(values, allowed, fallback) {
+  const requested = values.get("status");
+  return allowed.includes(requested) ? requested : fallback;
+}
+
+/**
+ * The practice library, annotated with this learner's own progress.
+ *
+ * Status and difficulty filtering happens server-side through the same
+ * endpoint that supplies the list, so a filtered view and its count always
+ * come from one consistent snapshot. The free-text filter stays client-side
+ * because it only narrows an already-fetched page.
+ */
 export default function ProblemsPage() {
   const [searchParams] = useSearchParams();
-  const initialDifficulty = searchParams.get("difficulty") || "All";
   const [difficulty, setDifficulty] = useState(
-    difficulties.includes(initialDifficulty) ? initialDifficulty : "All",
+    initialSelection(searchParams, difficulties, "All"),
+  );
+  const [status, setStatus] = useState(
+    initialSelection(
+      searchParams,
+      statusFilters.map((option) => option.id),
+      "all",
+    ),
   );
   const [query, setQuery] = useState("");
-  const loadProblems = useCallback(
-    () => problemApi.list({ difficulty: difficulty === "All" ? undefined : difficulty, limit: 50 }),
-    [difficulty],
-  );
-  const { data, error, loading, reload } = useApiResource(loadProblems);
+
+  const { data, error, loading, reload } = useProgressList({
+    status: status === "all" ? undefined : status,
+    difficulty: difficulty === "All" ? undefined : difficulty,
+  });
+
   const problems = (data?.items || []).filter((problem) => {
     const searchValue = query.trim().toLowerCase();
     if (!searchValue) return true;
-    return `${problem.title} ${problem.summary} ${problem.topics.join(" ")}`.toLowerCase().includes(searchValue);
+    return `${problem.title} ${problem.difficulty} ${problem.topics.join(" ")}`
+      .toLowerCase()
+      .includes(searchValue);
   });
 
   return (
@@ -44,9 +72,13 @@ export default function ProblemsPage() {
         <label className="library-search">
           <Search size={17} />
           <span className="sr-only">Filter problems</span>
-          <input onChange={(event) => setQuery(event.target.value)} placeholder="Filter by title, pattern, or topic" value={query} />
+          <input
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter by title, pattern, or topic"
+            value={query}
+          />
         </label>
-        <div className="filter-group" role="group" aria-label="Filter by difficulty">
+        <div aria-label="Filter by difficulty" className="filter-group" role="group">
           <Filter size={15} />
           {difficulties.map((option) => (
             <button
@@ -56,6 +88,19 @@ export default function ProblemsPage() {
               type="button"
             >
               {option}
+            </button>
+          ))}
+        </div>
+        <div aria-label="Filter by your progress" className="filter-group" role="group">
+          <Filter size={15} />
+          {statusFilters.map((option) => (
+            <button
+              className={`filter-button${status === option.id ? " selected" : ""}`}
+              key={option.id}
+              onClick={() => setStatus(option.id)}
+              type="button"
+            >
+              {option.label}
             </button>
           ))}
         </div>
@@ -70,14 +115,26 @@ export default function ProblemsPage() {
               <span className="eyebrow">Published catalog</span>
               <h3>{data?.total ?? 0} problems</h3>
             </div>
-            <StatusPill tone="neutral">{difficulty === "All" ? "All levels" : difficulty}</StatusPill>
+            <div className="results-heading-pills">
+              <StatusPill tone="neutral">{difficulty === "All" ? "All levels" : difficulty}</StatusPill>
+              {status === "all" ? null : <ProgressStatusPill status={status} />}
+            </div>
           </div>
           {problems.length ? (
             <div className="problem-grid">
-              {problems.map((problem) => <ProblemCard key={problem.id} problem={problem} />)}
+              {problems.map((problem) => (
+                <ProblemCard key={problem.problem_id} problem={problem} />
+              ))}
             </div>
           ) : (
-            <EmptyState description="Try a different difficulty or clear the search filter." title="No matching problems" />
+            <EmptyState
+              description={
+                query
+                  ? "Try a different search term, or clear the filters."
+                  : "No problem in the catalog matches these filters yet."
+              }
+              title="No matching problems"
+            />
           )}
         </>
       ) : null}

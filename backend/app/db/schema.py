@@ -1,3 +1,4 @@
+from database.models.progress import LEGACY_STATUS_MAP, PROGRESS_STATUS_VALUES
 from sqlalchemy import DateTime, String, inspect, text
 from sqlalchemy.engine import Engine
 
@@ -105,3 +106,122 @@ def ensure_user_schema(bind: Engine) -> None:
         connection.execute(text("UPDATE users SET name = email WHERE name IS NULL"))
         connection.execute(text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
         connection.execute(text("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"))
+
+
+# Columns the learner progress release added on top of the original table.
+PROGRESS_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("attempts_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("best_runtime_ms", "INTEGER"),
+    ("best_memory_mb", "INTEGER"),
+    ("last_attempted_at", "TIMESTAMP"),
+    ("solved_at", "TIMESTAMP"),
+    ("created_at", "TIMESTAMP"),
+)
+
+
+def _status_backfill_case() -> str:
+    """A SQL CASE that rewrites every legacy status label to the new vocabulary.
+
+    Generated from :data:`LEGACY_STATUS_MAP` so the SQL and the Python reader in
+    ``database.models.progress`` can never disagree about a legacy value.
+    """
+    branches = " ".join(
+        f"WHEN '{legacy}' THEN '{current}'" for legacy, current in LEGACY_STATUS_MAP.items()
+    )
+    return f"CASE status {branches} ELSE 'not_started' END"
+
+
+def ensure_progress_schema(bind: Engine) -> None:
+    """Bring an adopted ``progress`` table up to the learner progress shape.
+
+    Mirrors the Alembic revision ``b_progress_learner_tracking`` so a
+    ``AUTO_CREATE_TABLES=true`` development database and a migrated deployed
+    database end up identical. The upgrade is additive and idempotent: no row
+    is deleted, and every legacy column is left in place for a later revision
+    to drop once no deployment still carries it.
+    """
+    inspector = inspect(bind)
+    if "progress" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("progress")}
+    with bind.begin() as connection:
+        for column, ddl in PROGRESS_ADDED_COLUMNS:
+            if column not in existing_columns:
+                connection.execute(text(f'ALTER TABLE progress ADD COLUMN "{column}" {ddl}'))
+
+        # A row that predates the release has no separate creation or attempt
+        # timestamps, so the best available evidence is its last update.
+        connection.execute(
+            text(
+                "UPDATE progress SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)"
+                " WHERE created_at IS NULL"
+            )
+        )
+        connection.execute(
+            text(f"UPDATE progress SET status = {_status_backfill_case()} WHERE status IS NOT NULL")
+        )
+        connection.execute(
+            text(
+                "UPDATE progress SET last_attempted_at = COALESCE(last_attempted_at, updated_at)"
+                " WHERE status IN ('attempted', 'solved')"
+            )
+        )
+        if "completed_at" in existing_columns:
+            # The old table recorded when a learner completed a problem in
+            # `completed_at`, so that is better evidence than `updated_at`.
+            # It runs first so the fallback below only fills the gaps.
+            connection.execute(
+                text(
+                    "UPDATE progress SET solved_at = completed_at"
+                    " WHERE status = 'solved' AND solved_at IS NULL AND completed_at IS NOT NULL"
+                )
+            )
+        connection.execute(
+            text(
+                "UPDATE progress SET solved_at = COALESCE(solved_at, updated_at)"
+                " WHERE status = 'solved' AND solved_at IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE progress SET attempts_count = 1"
+                " WHERE (attempts_count IS NULL OR attempts_count < 1)"
+                "   AND status IN ('attempted', 'solved')"
+            )
+        )
+        connection.execute(text("UPDATE progress SET attempts_count = 0 WHERE attempts_count IS NULL"))
+
+        if "best_time_ms" in existing_columns and "best_runtime_ms" in existing_columns:
+            # Preserve the only runtime measurement the old column ever held.
+            connection.execute(
+                text(
+                    "UPDATE progress SET best_runtime_ms = best_time_ms"
+                    " WHERE best_runtime_ms IS NULL AND best_time_ms IS NOT NULL"
+                )
+            )
+
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_progress_user_status"
+                " ON progress (user_id, status)"
+            )
+        )
+
+    if bind.dialect.name == "postgresql":
+        # SQLite cannot attach a CHECK constraint to an existing table without
+        # rebuilding it. Rebuilding risks learner data, so on SQLite the status
+        # is enforced by the request schema and the service instead.
+        with bind.begin() as connection:
+            constraints = {
+                constraint["name"]
+                for constraint in inspect(bind).get_check_constraints("progress")
+            }
+            if "ck_progress_status" not in constraints:
+                values = ", ".join(f"'{value}'" for value in PROGRESS_STATUS_VALUES)
+                connection.execute(
+                    text(
+                        "ALTER TABLE progress ADD CONSTRAINT ck_progress_status"
+                        f" CHECK (status IN ({values}))"
+                    )
+                )

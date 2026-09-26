@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import CodeEditor from "../features/problems/CodeEditor";
+import ProblemProgressPanel from "../features/progress/ProblemProgressPanel";
 import { ErrorState, LoadingState, PageHeader, SectionCard, StatusPill } from "../components/ui/Feedback";
 import { useApiResource } from "../hooks/useApiResource";
 import { problemApi } from "../services/platformService";
@@ -72,6 +73,9 @@ export default function WorkspacePage() {
         </SectionCard>
 
         <div className="workspace-side-column">
+          <SectionCard title="Your progress" description="Stored against your account for this problem.">
+            <ProblemProgressPanel problemId={problem.id} />
+          </SectionCard>
           <SectionCard title="Test cases" description="Examples from the problem contract.">
             <div className="test-case-list">
               {problem.examples?.map((example, index) => (

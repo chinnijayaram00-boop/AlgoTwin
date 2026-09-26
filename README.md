@@ -163,7 +163,63 @@ Current routes:
 - `GET /api/v1/algorithms` — algorithm registry contract
 - `GET /api/v1/ai/status` — non-secret AI provider configuration status
 
-Secure code execution, progress mutations, AI generation, and interview state are intentionally reserved for the next implementation phase. The frontend displays these boundaries rather than presenting simulated execution or learning results.
+Secure code execution, AI generation, and interview state are intentionally reserved for the next implementation phase. The frontend displays these boundaries rather than presenting simulated execution or learning results.
+
+## Learner progress
+
+Progress is the only user-specific feature in the API today, and it is scoped to the signed-in learner by the same `get_current_user` guard the auth routes use. There is no `user_id` parameter, query field, or body field anywhere in the progress API: a caller cannot address another learner's progress even by guessing an id.
+
+All five routes require a bearer token:
+
+- `GET /api/v1/progress/me` — the caller's standing across the published catalog
+- `GET /api/v1/progress/problems` — every published problem annotated with the caller's status
+- `GET /api/v1/progress/problems/{problem_id}` — the caller's record for one problem
+- `PUT /api/v1/progress/problems/{problem_id}` — set the caller's status for a problem
+- `POST /api/v1/progress/problems/{problem_id}/attempt` — record one more attempt
+
+Behaviour worth knowing:
+
+- Statuses are `not_started`, `attempted`, and `solved`. The vocabulary is enforced on write and in the list filter: an unknown or legacy label such as `completed` is a `422`, never a silent substitution. Legacy values are still *read* correctly, because a row written before this release may still hold one.
+- Reading a problem the learner has never opened returns `not_started` without creating a row. Only a problem outside the published catalog is a `404`.
+- `GET /progress/problems` covers the whole catalog, so a client can render a complete list from one request. `status`, `difficulty`, and `topic` filter server-side; `limit` and `offset` paginate.
+- `PUT` is idempotent. The unique `(user_id, problem_id)` constraint is what makes that true under concurrent requests, so repeated updates leave one record, not two.
+- Claiming `attempted` or `solved` implies at least one attempt and stamps the relevant timestamps, so a record cannot contradict itself. Moving back to `not_started` clears the trail instead of leaving a stale solve date behind.
+- Recording an attempt on a `solved` problem leaves it solved: re-reading a solution is not a regression.
+- `best_runtime_ms` and `best_memory_mb` are optional measurements that only improve. Nothing populates them automatically, because AlgoTwin has no runner yet.
+
+### What progress is not
+
+A status here is self-reported. No code is compiled, run, or graded, and the workspace panel says so in the product. The API is the durable record that a future sandboxed runner can write to; it is not a verdict system pretending to be one. `best_runtime_ms` stays null until a real runner reports one.
+
+The frontend labels these actions as self-reported and leaves the run button disabled, so nothing in the UI implies execution that does not exist.
+
+### Data flow
+
+```text
+learner action (mark solved / record an attempt)
+  -> ProgressStatusPill + ProblemProgressPanel
+  -> useProblemProgress (PUT /progress/problems/{id} or POST /attempt)
+  -> progress_service.set_status / record_attempt
+  -> Progress row (unique per learner per problem)
+  -> GET /progress/me  -> ProgressPanel on the dashboard
+```
+
+`useProgressList` feeds the problems page, so the status shown on a card, in the workspace, and on the dashboard always comes from one row.
+
+Frontend layout:
+
+- `frontend/src/features/progress/progressService.js` — the five calls, token-attached
+- `frontend/src/features/progress/useProgress.js` — `useProgressSummary`, `useProgressList`, `useProblemProgress`
+- `frontend/src/features/progress/progressStatus.js` — label, tone, and formatting for the status vocabulary
+- `frontend/src/features/progress/ProgressPanel.jsx` — dashboard summary with difficulty and topic breakdowns
+- `frontend/src/features/progress/ProblemProgressPanel.jsx` — the workspace record and its actions
+- `frontend/src/features/progress/ProgressStatusPill.jsx` — the shared status pill
+
+### Migrating an existing database
+
+Revision `b_progress_learner_tracking` follows the baseline and is additive: it adds the new columns, rewrites legacy status labels onto the new vocabulary, carries `completed_at` into `solved_at` and `best_time_ms` into `best_runtime_ms`, and creates the composite `(user_id, status)` index. It deletes no row and drops no column, and its `downgrade` is inert, so reversing it cannot destroy learner data.
+
+`AUTO_CREATE_TABLES=true` start-up applies the same shape through `ensure_progress_schema`, so a development database and a migrated database end up identical. The public catalog endpoints stay progress-free: the dashboard's catalog summary is public, and a caller's own progress is only ever available from the authenticated routes above.
 
 ## Project conventions
 

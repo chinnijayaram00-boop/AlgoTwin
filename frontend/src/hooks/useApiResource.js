@@ -1,21 +1,23 @@
 import { useEffect, useState } from "react";
 
 export function useApiResource(resource) {
-  const [state, setState] = useState({ data: null, error: "", loading: true });
+  const [state, setState] = useState({ data: null, error: "", errorStatus: null, loading: true });
 
   useEffect(() => {
     let active = true;
-    setState((current) => ({ ...current, error: "", loading: true }));
+    setState((current) => ({ ...current, error: "", errorStatus: null, loading: true }));
 
     resource()
       .then((data) => {
         if (active) {
-          setState({ data, error: "", loading: false });
+          setState({ data, error: "", errorStatus: null, loading: false });
         }
       })
       .catch((error) => {
         if (active) {
-          setState({ data: null, error: error.message, loading: false });
+          // `errorStatus` lets a caller distinguish an unauthenticated session
+          // (401) from a server or network failure without parsing the message.
+          setState({ data: null, error: error.message, errorStatus: error.status ?? null, loading: false });
         }
       });
 

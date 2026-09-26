@@ -29,6 +29,17 @@ def get_problem_by_slug(session: Session, slug: str) -> Problem | None:
     return session.scalar(select(Problem).where(Problem.slug == slug, Problem.is_published.is_(True)))
 
 
+def get_published_problem_by_id(session: Session, problem_id: int) -> Problem | None:
+    """Fetch a published problem by primary key.
+
+    Progress mutations address problems by id, so the id path needs the same
+    published-only visibility rule the slug path already has.
+    """
+    return session.scalar(
+        select(Problem).where(Problem.id == problem_id, Problem.is_published.is_(True))
+    )
+
+
 def get_dashboard_summary(session: Session) -> DashboardSummary:
     difficulty_rows = session.execute(
         select(Problem.difficulty, func.count(Problem.id))

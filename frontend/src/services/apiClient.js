@@ -111,4 +111,11 @@ export const apiClient = {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   },
+  put(path, body, options) {
+    return request(path, {
+      ...(options || {}),
+      method: "PUT",
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  },
 };

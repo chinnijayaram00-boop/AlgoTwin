@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.core.config import get_settings
-from backend.app.db.schema import ensure_user_schema
+from backend.app.db.schema import ensure_progress_schema, ensure_user_schema
 
 settings = get_settings()
 engine_options: dict[str, object] = {"pool_pre_ping": True}
@@ -21,6 +21,7 @@ def init_db() -> None:
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
     ensure_user_schema(engine)
+    ensure_progress_schema(engine)
     if settings.auto_create_tables and settings.seed_demo_data:
         with SessionLocal() as session:
             seed_demo_data(session)
