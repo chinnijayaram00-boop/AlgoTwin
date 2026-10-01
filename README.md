@@ -1,6 +1,6 @@
 # ALgotwin
 
-ALgotwin is a production-oriented foundation for an AI-powered DSA learning, visualization, and interview platform. The repository provides a runnable web shell, a FastAPI REST API, persistent user accounts with bearer-token authentication, database-ready models, environment configuration, and the boundaries needed for future secure code execution, AI explanations, algorithm visualization, and interview features.
+ALgotwin is a production-oriented foundation for an AI-powered DSA learning, visualization, and interview platform. The repository provides a runnable web shell, a FastAPI REST API, persistent user accounts with bearer-token authentication, a seeded DSA catalog, an out-of-process code runner that grades a learner's program against a problem's visible cases, database-ready models, environment configuration, and the boundaries needed for future judged submissions, AI explanations, algorithm visualization, and interview features.
 
 ## Stack
 
@@ -27,12 +27,16 @@ backend/
   app/db/                   SQLAlchemy engine, sessions, and schema compatibility
   app/schemas/              request and response contracts
   app/services/             application use cases
+  app/judge/                out-of-process code execution and grading
   app/algorithms/           algorithm execution contracts and registry
   app/visualization/        visualization data contracts
   app/ai/                   AI provider boundary and configuration
   tests/                    backend tests
 database/
   models/                   SQLAlchemy domain models
+  problem_defs/             the seeded problem catalog, as validated definitions
+  problem_catalog.py        catalog synchronization used by the seed
+  problem_spec.py           catalog shape and the offline judge oracle
   migrations/               Alembic migration environment
 ```
 
@@ -72,7 +76,7 @@ On macOS or Linux, activate the environment with `source .venv/bin/activate` and
 Start the API in one terminal:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8001
 ```
 
 Start the frontend in another terminal:
@@ -81,7 +85,9 @@ Start the frontend in another terminal:
 npm run dev:frontend
 ```
 
-Open `http://localhost:5173`. The API root is `http://localhost:8000`; health and readiness endpoints are under `http://localhost:8000/api/v1/health` and `http://localhost:8000/api/v1/health/ready`.
+Open `http://localhost:5174`. The API root is `http://localhost:8001`; health and readiness endpoints are under `http://localhost:8001/api/v1/health` and `http://localhost:8001/api/v1/health/ready`.
+
+Run both from the repository root. The API resolves `.env` relative to the repository, so the CORS allowlist and `JWT_SECRET_KEY` load the same way from any working directory.
 
 The first visit redirects to `/login`. Create an account at `/register`; the issued token is stored in browser `localStorage` and restored on later visits, so the workspace survives reloads and restarts.
 
@@ -119,6 +125,14 @@ The Alembic configuration expects the project root as its working directory and 
 ```
 
 Do not commit `.env`, database files, or AI keys.
+
+### Seeded problem catalog
+
+`database/problem_defs/` holds 12 judge-ready problems (4 Easy, 8 Medium) as validated Python definitions — statement, input and output format, hints, tags, per-problem limits, visible and hidden cases, and a reference solution per language. `SEED_PROBLEM_CATALOG=true` (the default) validates each definition and then upserts it on startup.
+
+Validation is not a formality: `database/problem_spec.py` runs every reference solution against the definition's own cases before the row is written, so a definition whose reference solution does not pass fails the seed rather than shipping a problem the judge would mark wrong. Language support is checked against the judge registry for the same reason — the catalog once advertised Java, which the runner cannot execute, and a tab that ends in a `422` is a defect.
+
+Synchronization is non-destructive. A definition is matched by slug, and an existing row keeps its id, its attachment text, and its `is_published` flag; only judge-owned columns are refreshed. Changing a problem's cases changes its row, so treat an edited definition as a schema change for anything already graded against the old cases.
 
 ## Authentication
 
@@ -161,9 +175,45 @@ Current routes:
 - `GET /api/v1/problems/{slug}` — problem detail and examples
 - `GET /api/v1/dashboard/summary` — catalog summary for the dashboard
 - `GET /api/v1/algorithms` — algorithm registry contract
+- `GET /api/v1/judge/languages` — the languages this deployment can actually run
+- `POST /api/v1/problems/{problem_id}/run` — run a program against the problem's visible cases
 - `GET /api/v1/ai/status` — non-secret AI provider configuration status
 
-Secure code execution, AI generation, and interview state are intentionally reserved for the next implementation phase. The frontend displays these boundaries rather than presenting simulated execution or learning results.
+AI generation and interview state are intentionally reserved for the next implementation phase. The frontend displays those boundaries rather than presenting simulated explanations or interview results. Code execution is real; see [Code execution](#code-execution).
+
+## Code execution
+
+`POST /api/v1/problems/{problem_id}/run` executes the code in the editor and returns what happened. It is the first half of a judge: it runs the problem's **visible** cases and grades against them, and it deliberately does not record a submission.
+
+Two routes make the contract legible instead of hard-coding it in the UI:
+
+- `GET /api/v1/judge/languages` reports the languages this deployment can run, from the same registry the catalog is validated against. The workspace draws its language tabs from this response, so a language the operator has switched off is never offered.
+- `POST /api/v1/problems/{problem_id}/run` accepts `language`, `source_code`, and an optional `stdin`, and returns `verdict`, `cases_run`, `cases_passed`, `cases_total`, per-case results, `error_message`, `total_runtime_ms`, `peak_memory_mb`, `truncated`, and the limits that were applied.
+
+### What runs where
+
+Learner code never runs inside the API process. `backend/app/judge/runner.py` starts one fresh worker per case through `backend/app/judge/worker.py`, which executes the program with `python -I -B` (isolated mode: no user site-packages, no `PYTHON*` environment variables, no working-directory imports) or `node`, and exits. The parent owns the clock, the memory ceiling, and the output cap; it never parses the program's stdout to decide anything but truncation.
+
+Per case the job receives the source, the input, and the limits. It does not receive the expected output. A worker therefore cannot learn the answer by reading its own job.
+
+### Honest results
+
+- Verdicts are `accepted`, `wrong_answer`, `runtime_error`, `compilation_error`, `time_limit_exceeded`, `memory_limit_exceeded`, and `failed`, imported from the `SubmissionStatus` model so a label the submission table cannot store can never be published here.
+- A run with a learner-supplied `stdin` has no expected output, so it returns `verdict: null`, `cases_run: 0`, and an `ad_hoc` block with the exit code, whether it timed out, and the captured output. It reports what the program did; it does not pretend to have graded it.
+- Hidden cases are run and can decide a verdict, but the response only says how many were hidden and whether the program passed them. `case_input`, `expected_output`, and `actual_output` are `None` for a hidden case, so there is nothing to disclose.
+- Output is capped, and `truncated` says so. An error message is clipped to the column width rather than failing the write or flooding the response.
+
+### Limits and settings
+
+- `EXECUTION_ENABLED=false` is the kill switch: `/judge/languages` reports `execution_enabled: false` and `/run` answers `503` without starting a process.
+- `EXECUTION_PYTHON` and `EXECUTION_JAVASCRIPT` hide a language from the registry, which the workspace follows.
+- A problem's own `time_limit_ms` and `memory_limit_mb` are clamped to the model ceilings. The per-case time limit is additionally clamped to `MAX_JUDGE_WALL_CLOCK_MS`, the ceiling on one request's wall clock, so a request cannot multiply the problem's limit by its case count.
+
+### What this is not
+
+This runner is safe against a learner's mistakes — an infinite loop, a runaway allocation, a crash, a flood of output — because those are the cases it is built and tested for. It is **not** a hardened boundary against a determined attacker: no container, no seccomp, no cgroup, no separate user, no network denial. Before accepting untrusted public input, run the worker inside a container or VM (or Windows Job Objects) with no network, a read-only filesystem, and a hard memory limit. On Windows today `RLIMIT_AS` and `RLIMIT_CPU` do not exist, so the memory ceiling is best-effort and `peak_memory_mb` is reported as `null` rather than guessed.
+
+`backend/tests/test_judge.py` covers all of this: 88 tests over real execution, timeouts, output caps, hidden-case non-leakage, budget arithmetic, catalog integrity against reference solutions, and the absence of any persistence.
 
 ## Learner progress
 
@@ -185,13 +235,13 @@ Behaviour worth knowing:
 - `PUT` is idempotent. The unique `(user_id, problem_id)` constraint is what makes that true under concurrent requests, so repeated updates leave one record, not two.
 - Claiming `attempted` or `solved` implies at least one attempt and stamps the relevant timestamps, so a record cannot contradict itself. Moving back to `not_started` clears the trail instead of leaving a stale solve date behind.
 - Recording an attempt on a `solved` problem leaves it solved: re-reading a solution is not a regression.
-- `best_runtime_ms` and `best_memory_mb` are optional measurements that only improve. Nothing populates them automatically, because AlgoTwin has no runner yet.
+- `best_runtime_ms` and `best_memory_mb` are optional measurements that only improve. Nothing populates them automatically, because no run writes to a progress row today.
 
 ### What progress is not
 
-A status here is self-reported. No code is compiled, run, or graded, and the workspace panel says so in the product. The API is the durable record that a future sandboxed runner can write to; it is not a verdict system pretending to be one. `best_runtime_ms` stays null until a real runner reports one.
+A status here is self-reported. The API is the durable record of what a learner claims, not of what their code did: pressing **Save submission** records code, and nothing compiles, runs, or grades it. **Run** in the same workspace does execute code, but only against the problem's visible cases, and it writes no submission and no progress row. `best_runtime_ms` stays null until a judged submission flow reports one.
 
-The frontend labels these actions as self-reported and leaves the run button disabled, so nothing in the UI implies execution that does not exist.
+The frontend keeps the two apart on purpose: the record-only actions are labelled as self-reported, and the Run result panel states that a verdict came from the visible cases only.
 
 ### Data flow
 
@@ -227,5 +277,5 @@ Revision `b_progress_learner_tracking` follows the baseline and is additive: it 
 - Keep persistence and domain orchestration in `database/models` and `backend/app/services`.
 - Keep provider integrations behind `backend/app/ai` and execution/visualization contracts behind their respective modules.
 - Hash passwords through `backend/app/core/security.py`; never store or log plaintext credentials.
-- Never execute user-submitted code in the API process; add a sandboxed worker before enabling execution.
+- Never execute user-submitted code in the API process. Execution belongs to `backend/app/judge`, and a worker must be started from a deployment that provides a real OS-level boundary.
 - Never log or return `AI_API_KEY`, `JWT_SECRET_KEY`, or other credentials.

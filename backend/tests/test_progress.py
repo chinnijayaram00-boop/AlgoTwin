@@ -17,6 +17,13 @@ from sqlalchemy.orm import Session
 
 from backend.app.schemas.progress import MAX_MEMORY_MB, MAX_RUNTIME_MS
 from backend.app.services.progress_service import current_streak_days, set_status
+from backend.tests.conftest import (
+    CATALOG_BY_DIFFICULTY,
+    CATALOG_SIZE,
+    CATALOG_SLUGS,
+    CATALOG_TOPIC_COUNTS,
+    CATALOG_TOPICS,
+)
 
 ALPHA = {"name": "Alpha Learner", "email": "alpha@example.com", "password": "correct-horse-battery-staple"}
 BETA = {"name": "Beta Learner", "email": "beta@example.com", "password": "another-strong-passphrase"}
@@ -79,7 +86,7 @@ def test_authenticated_learner_reaches_progress_immediately_after_registration(c
     response = client.get(SUMMARY, headers=auth(session["access_token"]))
 
     assert response.status_code == 200
-    assert response.json()["total_problems"] == 4
+    assert response.json()["total_problems"] == CATALOG_SIZE
 
 
 def test_progress_reports_missing_jwt_configuration_as_unavailable(db_engine) -> None:
@@ -115,13 +122,13 @@ def test_summary_of_a_fresh_learner_is_all_zero(client: TestClient) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total_problems"] == 4
+    assert payload["total_problems"] == CATALOG_SIZE
     assert payload["attempted"] == 0
     assert payload["solved"] == 0
-    assert payload["not_started"] == 4
+    assert payload["not_started"] == CATALOG_SIZE
     assert payload["completion_percentage"] == 0.0
     assert payload["current_streak_days"] == 0
-    assert payload["total_by_difficulty"] == {"Easy": 3, "Medium": 1}
+    assert payload["total_by_difficulty"] == CATALOG_BY_DIFFICULTY
     assert payload["solved_by_difficulty"] == {}
 
 
@@ -139,11 +146,11 @@ def test_summary_counts_track_each_recorded_state(client: TestClient) -> None:
 
     assert payload["solved"] == 2
     assert payload["attempted"] == 1
-    assert payload["not_started"] == 1
-    assert payload["completion_percentage"] == 50.0
-    assert payload["total_problems"] == 4
+    assert payload["not_started"] == CATALOG_SIZE - 3
+    assert payload["completion_percentage"] == round(2 / CATALOG_SIZE * 100, 2)
+    assert payload["total_problems"] == CATALOG_SIZE
     assert payload["solved_by_difficulty"] == {"Easy": 2}
-    assert payload["total_by_difficulty"] == {"Easy": 3, "Medium": 1}
+    assert payload["total_by_difficulty"] == CATALOG_BY_DIFFICULTY
 
 
 def test_summary_breaks_progress_down_by_topic(client: TestClient) -> None:
@@ -154,10 +161,14 @@ def test_summary_breaks_progress_down_by_topic(client: TestClient) -> None:
 
     payload = client.get(SUMMARY, headers=headers).json()
 
-    # "Arrays" is shared by three seeded problems, "Hash Maps" by one.
-    assert payload["total_by_topic"]["Arrays"] == 3
-    assert payload["total_by_topic"]["Hash Maps"] == 1
-    assert payload["solved_by_topic"] == {"Arrays": 1, "Hash Maps": 1}
+    # Topic counts are derived from the catalog rather than written out, because a
+    # topic's count is a property of the shipped problems and hardcoding it broke
+    # the moment the catalog stopped being four hand-written rows.
+    assert payload["total_by_topic"]["Arrays"] == CATALOG_TOPIC_COUNTS["Arrays"]
+    assert payload["total_by_topic"]["Hash Maps"] == CATALOG_TOPIC_COUNTS["Hash Maps"]
+    # Solving a problem marks every one of its topics solved, so the expected value
+    # is the catalog's own topic list for two-sum rather than a pair of literals.
+    assert payload["solved_by_topic"] == {topic: 1 for topic in CATALOG_TOPICS["two-sum"]}
 
 
 def test_summary_of_an_empty_catalog_is_all_zero(client: TestClient, db_session: Session) -> None:
@@ -376,7 +387,7 @@ def test_list_reports_every_problem_with_its_status(client: TestClient) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 4
+    assert payload["total"] == CATALOG_SIZE
     assert payload["limit"] == 50
     assert payload["offset"] == 0
     assert {item["status"] for item in payload["items"]} == {"not_started", "solved"}
@@ -397,8 +408,10 @@ def test_list_filters_by_status_difficulty_and_topic(client: TestClient) -> None
 
     assert [item["slug"] for item in solved["items"]] == ["two-sum"]
     assert [item["slug"] for item in attempted["items"]] == ["merge-intervals"]
-    assert {item["slug"] for item in untouched["items"]} == {"valid-parentheses", "binary-search"}
-    assert easy["total"] == 3
+    assert {item["slug"] for item in untouched["items"]} == {
+        slug for slug in CATALOG_SLUGS if slug not in {"two-sum", "merge-intervals"}
+    }
+    assert easy["total"] == CATALOG_BY_DIFFICULTY["Easy"]
     assert [item["slug"] for item in topic["items"]] == ["merge-intervals"]
 
 
@@ -408,7 +421,7 @@ def test_list_paginates(client: TestClient) -> None:
     first = client.get(PROBLEMS, params={"limit": 2, "offset": 0}, headers=headers).json()
     second = client.get(PROBLEMS, params={"limit": 2, "offset": 2}, headers=headers).json()
 
-    assert first["total"] == second["total"] == 4
+    assert first["total"] == second["total"] == CATALOG_SIZE
     assert len(first["items"]) == len(second["items"]) == 2
     assert {item["problem_id"] for item in first["items"]}.isdisjoint(
         {item["problem_id"] for item in second["items"]}
@@ -444,7 +457,7 @@ def test_a_learner_never_sees_another_learners_records(client: TestClient) -> No
     assert beta_view["solved_at"] is None
     assert {item["status"] for item in beta_list["items"]} == {"not_started"}
     assert beta_summary["solved"] == 0
-    assert beta_summary["not_started"] == 4
+    assert beta_summary["not_started"] == CATALOG_SIZE
 
 
 def test_a_learner_cannot_change_another_learners_progress(client: TestClient) -> None:

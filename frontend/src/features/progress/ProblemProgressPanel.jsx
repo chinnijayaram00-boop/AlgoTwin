@@ -11,10 +11,14 @@ import { useProblemProgress } from "./useProgress";
  * Everything here is self-reported: the learner marks what they actually did.
  * Nothing is graded, inferred, or sent anywhere, and the panel says so, because
  * a status that looks like a verdict would misrepresent what is stored.
+ *
+ * `refreshKey` is an optional signal that something else changed this problem's
+ * record -- the workspace passes the count of submissions it has saved, so the
+ * attempt total reflects an attempt the API recorded on its own.
  */
-export default function ProblemProgressPanel({ problemId, enabled = true }) {
+export default function ProblemProgressPanel({ problemId, enabled = true, refreshKey = 0 }) {
   const { data, error, errorStatus, loading, reload, saving, actionError, setStatus, recordAttempt } =
-    useProblemProgress(problemId, { enabled });
+    useProblemProgress(problemId, { enabled, refreshKey });
 
   if (loading) {
     return <LoadingState label="Loading your progress for this problem" />;
@@ -105,7 +109,8 @@ export default function ProblemProgressPanel({ problemId, enabled = true }) {
       ) : null}
 
       <p className="problem-progress-disclaimer">
-        <Info size={14} /> Recorded by you, not verified by a judge. No code is run or stored here.
+        <Info size={14} /> An accepted submission sets this to solved and records your best runtime. The
+        buttons below record what you tell them, and the judge is the only other thing that can change it.
       </p>
     </div>
   );

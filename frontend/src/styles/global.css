@@ -1333,6 +1333,432 @@ pre {
   font-size: 0.8rem;
 }
 
+/* Run result: a real observation from a real execution, which is why this block
+   has verdict styling the submissions block deliberately does not. Every state
+   still states what a run is -- a debugging aid, and never a grade. */
+
+.judge-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.judge-mode .active {
+  color: var(--text-strong);
+  border-color: rgba(124, 108, 255, 0.4);
+}
+
+.judge-stdin-label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.judge-stdin-label textarea {
+  width: 100%;
+  padding: 10px 11px;
+  color: #c2cbe1;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  background: rgba(9, 14, 27, 0.42);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  resize: vertical;
+}
+
+.judge-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.judge-running,
+.judge-idle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.judge-idle p {
+  margin: 0;
+}
+
+.judge-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.judge-verdict-description {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.judge-facts {
+  display: grid;
+  gap: 0;
+}
+
+.judge-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.71rem;
+}
+
+.judge-facts dt {
+  color: var(--text-muted);
+}
+
+.judge-facts dd {
+  margin: 0;
+  color: var(--text-soft);
+  font-weight: 650;
+}
+
+.judge-truncated,
+.judge-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  font-size: 0.7rem;
+  border-radius: 8px;
+}
+
+.judge-truncated {
+  color: #f6d89d;
+  background: var(--amber-soft);
+  border: 1px solid rgba(244, 189, 106, 0.18);
+}
+
+.judge-message {
+  color: #ffacba;
+  background: var(--rose-soft);
+  border: 1px solid rgba(239, 130, 151, 0.18);
+  white-space: pre-wrap;
+}
+
+.judge-cases,
+.judge-adhoc {
+  display: grid;
+  gap: 10px;
+}
+
+.judge-case {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(141, 154, 181, 0.05);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+}
+
+.judge-case-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.judge-case.passed .judge-case-heading svg {
+  color: var(--mint);
+}
+
+.judge-case.failed .judge-case-heading svg {
+  color: var(--rose, #ef8297);
+}
+
+.judge-case-error {
+  margin: 0;
+  color: #ffacba;
+  font-size: 0.68rem;
+}
+
+.judge-case-columns {
+  display: grid;
+  gap: 8px;
+}
+
+.judge-case-columns > div,
+.judge-adhoc > div {
+  display: grid;
+  gap: 4px;
+}
+
+.judge-case-columns span,
+.judge-adhoc-exit span {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.judge-case pre,
+.judge-adhoc pre {
+  margin: 0;
+  padding: 8px 9px;
+  overflow-x: auto;
+  color: #c2cbe1;
+  font-size: 0.67rem;
+  white-space: pre-wrap;
+  background: rgba(9, 14, 27, 0.42);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}
+
+.judge-adhoc-exit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.judge-adhoc-exit strong {
+  color: var(--text-soft);
+  font-size: 0.71rem;
+}
+
+.judge-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+/* Submissions: a record of code the learner saved, never a result. The block
+   deliberately has no runtime, pass-rate, or verdict styling, because nothing
+   in the platform measures those yet. */
+
+.submissions-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.submission-history,
+.submission-recorder,
+.submission-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.submission-history-toolbar,
+.submission-recorder-head,
+.submission-pagination,
+.submission-detail-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.submission-history-total,
+.submission-recorder-count {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.submission-pagination {
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.submission-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.submission-list-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.submission-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  color: inherit;
+  text-align: left;
+  background: rgba(141, 154, 181, 0.05);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+button.submission-row:hover {
+  background: rgba(141, 154, 181, 0.09);
+  border-color: rgba(124, 108, 255, 0.24);
+}
+
+.submission-row.selected {
+  background: var(--primary-soft);
+  border-color: rgba(124, 108, 255, 0.32);
+}
+
+.submission-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.submission-row-main strong {
+  overflow: hidden;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.submission-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.submission-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.submission-detail-head h3 {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+}
+
+.submission-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 14px 0;
+  margin: 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.submission-facts div {
+  display: grid;
+  gap: 4px;
+}
+
+.submission-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.submission-facts dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.submission-detail-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.submission-source {
+  display: grid;
+  gap: 7px;
+}
+
+.submission-source-label {
+  color: var(--text-muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.submission-source pre {
+  max-height: 340px;
+  padding: 14px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  background: #0b1120;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.submission-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #dcfff8;
+  font-size: 0.76rem;
+  background: var(--mint-soft);
+  border: 1px solid rgba(60, 201, 176, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.submission-saved svg {
+  flex: 0 0 auto;
+  color: var(--mint);
+}
+
+.submission-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.submission-disclaimer svg {
+  flex: 0 0 auto;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .feature-hero {
   align-items: center;
   min-height: 190px;
@@ -1761,7 +2187,8 @@ pre {
 
   .dashboard-grid,
   .comparison-layout,
-  .workspace-grid {
+  .workspace-grid,
+  .submissions-layout {
     grid-template-columns: 1fr;
   }
 

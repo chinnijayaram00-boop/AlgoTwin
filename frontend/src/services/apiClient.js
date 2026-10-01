@@ -63,13 +63,26 @@ async function readBody(response) {
   }
 }
 
+/**
+ * How long a request waits before it is abandoned.
+ *
+ * Ten seconds suits every read in the app and every write, but not a code run:
+ * the API holds a run open until the judge finishes, and the judge's own budget
+ * is tens of seconds. A caller that knowingly waits longer says so per request
+ * rather than this growing for everything, so a hung backend still fails fast
+ * on ordinary calls.
+ */
+export const DEFAULT_TIMEOUT_MS = 10000;
+
 async function request(path, options = {}) {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
-  const { token, headers, ...fetchOptions } = options;
+  const { token, headers, timeoutMs, ...fetchOptions } = options;
+  const waitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
+  const timeoutId = window.setTimeout(() => controller.abort(), waitMs);
+  const url = `${API_BASE_URL}${path}`;
 
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(url, {
       ...fetchOptions,
       headers: {
         "Content-Type": "application/json",
@@ -93,6 +106,15 @@ async function request(path, options = {}) {
   } catch (error) {
     if (error.name === "AbortError") {
       throw new Error("The API request timed out.");
+    }
+    // A `TypeError` here is the browser refusing the request before it produced
+    // a response: the API is not running, the URL is wrong, or the origin is not
+    // in the CORS allowlist. The bare "Failed to fetch" hides which one it was,
+    // so name the URL that was actually attempted.
+    if (error instanceof TypeError) {
+      const wrapped = new Error(`Could not reach the API at ${url}. ${error.message}`);
+      wrapped.cause = error;
+      throw wrapped;
     }
     throw error;
   } finally {

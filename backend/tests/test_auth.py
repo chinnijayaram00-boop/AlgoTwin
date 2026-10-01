@@ -9,9 +9,13 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import pytest
 from database.models import User
-from database.seed import seed_demo_data
+from database.seed import (
+    DEMO_USER_EMAIL,
+    DEMO_USER_PASSWORD,
+    seed_demo_data,
+)
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import Settings
@@ -121,9 +125,13 @@ def test_registration_rejects_invalid_payloads(client: TestClient) -> None:
 
 
 def test_rejected_registration_creates_no_user(client: TestClient, db_session: Session) -> None:
+    # The seeded demo learner is already present, so the claim under test is
+    # that a rejected request adds nothing -- not that the table starts empty.
+    before = set(db_session.scalars(select(User.id)).all())
+
     client.post("/api/v1/auth/register", json={"name": "A", "email": "bad", "password": "short"})
 
-    assert db_session.scalars(select(User)).all() == []
+    assert set(db_session.scalars(select(User.id)).all()) == before
 
 
 # ------------------------------------------------------------ password hashing
@@ -226,6 +234,78 @@ def test_login_rejects_nonexistent_account(client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid email or password."
+
+
+# --------------------------------------------------------------- seeded account
+
+
+def test_seeded_demo_account_can_sign_in(client: TestClient, db_session: Session) -> None:
+    """A seeded database must contain an account the sign-in form can use.
+
+    The seed used to publish problems only, so a freshly seeded development
+    database held no user at all and every login came back as
+    `401 Invalid email or password.`
+    """
+    stored = db_session.scalar(select(User).where(User.email == DEMO_USER_EMAIL))
+    assert stored is not None, "the demo learner must be seeded"
+    assert stored.password_hash is not None
+    assert stored.password_hash != DEMO_USER_PASSWORD, "the demo password is hashed, never stored"
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": DEMO_USER_EMAIL, "password": DEMO_USER_PASSWORD},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["access_token"]
+    assert body["user"]["email"] == DEMO_USER_EMAIL
+    assert "password_hash" not in body["user"]
+
+
+def test_seeding_twice_keeps_one_demo_account_and_its_password(db_session: Session) -> None:
+    """Re-seeding is a no-op for an account that already exists.
+
+    Guards the two ways a repeat start-up could do damage: adding a second row
+    for the same address, and silently resetting a password somebody changed.
+    """
+    seed_demo_data(db_session)
+    first = db_session.scalar(select(User).where(User.email == DEMO_USER_EMAIL))
+    assert first is not None
+    original_hash = first.password_hash
+
+    db_session.execute(
+        User.__table__.update()
+        .where(User.id == first.id)
+        .values(password_hash=hash_password("a-password-the-developer-chose"))
+    )
+    db_session.commit()
+
+    seed_demo_data(db_session)
+
+    rows = db_session.scalars(select(User).where(func.lower(User.email) == DEMO_USER_EMAIL)).all()
+    assert len(rows) == 1
+    assert rows[0].password_hash != original_hash, "the existing hash must be left alone"
+
+
+def test_seeding_does_not_disturb_a_learner_who_claimed_the_demo_address(
+    db_session: Session,
+) -> None:
+    """A pre-existing row for the demo address is never overwritten."""
+    claimed = User(
+        name="Real Learner",
+        email=DEMO_USER_EMAIL.upper(),
+        password_hash=hash_password("their-own-password"),
+    )
+    db_session.add(claimed)
+    db_session.commit()
+
+    seed_demo_data(db_session)
+
+    rows = db_session.scalars(select(User).where(func.lower(User.email) == DEMO_USER_EMAIL)).all()
+    assert len(rows) == 1
+    assert rows[0].id == claimed.id
+    assert rows[0].name == "Real Learner"
 
 
 def test_login_does_not_reveal_whether_the_account_exists(client: TestClient) -> None:

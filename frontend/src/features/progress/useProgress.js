@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { useApiResource } from "../../hooks/useApiResource";
+import { useRefreshKey } from "../../hooks/useRefreshKey";
 import { progressService } from "./progressService";
 
 /**
@@ -34,8 +35,13 @@ export function useProgressList(params = {}, { enabled = true } = {}) {
  * refetches, so the UI can never drift from what is stored. `saving` covers the
  * in-flight window, and `actionError` reports a rejected change separately from
  * a failed load, because the two need different affordances in the UI.
+ *
+ * `refreshKey` lets a caller ask for one extra read without owning the hook --
+ * the workspace bumps it after saving a submission, because the API counts that
+ * as an attempt and the attempt count on screen would otherwise be stale. It
+ * only ever causes a refetch, so leaving it at its default changes nothing.
  */
-export function useProblemProgress(problemId, { enabled = true } = {}) {
+export function useProblemProgress(problemId, { enabled = true, refreshKey = 0 } = {}) {
   const load = useCallback(
     () => (problemId ? progressService.problem(problemId) : Promise.resolve(null)),
     [problemId],
@@ -48,6 +54,8 @@ export function useProblemProgress(problemId, { enabled = true } = {}) {
   const { data, error, errorStatus, loading, reload } = useApiResource(request);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
+
+  useRefreshKey(refreshKey, reload);
 
   const run = useCallback(
     async (operation) => {

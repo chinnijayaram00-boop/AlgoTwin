@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  FileCode2,
   GitCompareArrows,
   LayoutDashboard,
   ListChecks,
@@ -15,6 +16,7 @@ import BrandMark from "./BrandMark";
 const iconMap = {
   dashboard: LayoutDashboard,
   problems: ListChecks,
+  submissions: FileCode2,
   visualizer: Waypoints,
   compare: GitCompareArrows,
   interviews: MessagesSquare,

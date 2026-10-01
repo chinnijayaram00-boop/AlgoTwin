@@ -138,14 +138,17 @@ describe("ProgressStatusPill", () => {
 });
 
 describe("ProblemProgressPanel", () => {
-  it("shows the current status, facts, and a self-reported disclaimer", async () => {
+  it("shows the current status, facts, and who may set them", async () => {
     progressService.problem.mockResolvedValue(RECORD);
     renderInRouter(<ProblemProgressPanel problemId={12} />);
 
     expect(await screen.findByText("Attempted")).toBeInTheDocument();
     expect(screen.getByText(/started, not solved/i)).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText(/recorded by you, not verified by a judge/i)).toBeInTheDocument();
+    // Progress is no longer purely self-reported: an accepted submission also
+    // sets it. The disclaimer has to say so, or a learner would assume the
+    // status only ever moves when they click a button here.
+    expect(screen.getByText(/accepted submission sets this to solved/i)).toBeInTheDocument();
   });
 
   it("marks a problem as solved through the status endpoint", async () => {

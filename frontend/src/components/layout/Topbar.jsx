@@ -7,6 +7,7 @@ import { useAuth } from "../../features/auth/useAuth";
 const pageTitles = {
   "/dashboard": "Overview",
   "/problems": "Problem library",
+  "/submissions": "Submission history",
   "/visualizer": "Algorithm visualizer",
   "/compare": "Algorithm comparison",
   "/interviews": "Interview simulator",

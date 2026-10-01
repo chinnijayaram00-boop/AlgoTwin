@@ -12,6 +12,7 @@ import InterviewsPage from "./pages/InterviewsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProblemsPage from "./pages/ProblemsPage";
 import SettingsPage from "./pages/SettingsPage";
+import SubmissionsPage from "./pages/SubmissionsPage";
 import VisualizerPage from "./pages/VisualizerPage";
 import WorkspacePage from "./pages/WorkspacePage";
 
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="problems" element={<ProblemsPage />} />
         <Route path="problems/:slug" element={<WorkspacePage />} />
+        <Route path="submissions" element={<SubmissionsPage />} />
         <Route path="visualizer" element={<VisualizerPage />} />
         <Route path="compare" element={<ComparePage />} />
         <Route path="interviews" element={<InterviewsPage />} />
