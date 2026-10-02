@@ -2540,3 +2540,271 @@ button.submission-row:hover {
     display: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Grounded AI coach
+   --------------------------------------------------------------------------
+   The panels share one vocabulary with the rest of the app: `.section-card` for
+   the container, `.button` for actions, `.status-pill` for state. Only the
+   generated-text block has styles of its own, because only it has to be
+   unmistakably *not* the surrounding stored copy.
+   -------------------------------------------------------------------------- */
+
+.ai-panel {
+  display: grid;
+  gap: 13px;
+  margin-top: 13px;
+}
+
+.ai-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-panel-unavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.73rem;
+  line-height: 1.55;
+}
+
+.ai-panel-unavailable svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.ai-insight-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.ai-insight-error {
+  padding: 12px;
+  background: var(--rose-soft);
+  border: 1px solid rgba(239, 130, 151, 0.22);
+  border-radius: var(--radius-sm);
+}
+
+.ai-insight-error strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+.ai-insight-error p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+/* Demo output. Not a warning badge -- a standing statement that no model was
+   consulted, because that is the first thing a reader deserves to know. */
+.ai-demo-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(244, 189, 106, 0.22);
+  border-radius: var(--radius-sm);
+  font-size: 0.71rem;
+  line-height: 1.55;
+}
+
+.ai-demo-notice svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.ai-demo-notice code {
+  padding: 0 3px;
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+}
+
+.ai-insight-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ai-attribution,
+.ai-cached {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.ai-cached {
+  color: var(--text-soft);
+}
+
+.ai-insight-meta .button {
+  margin-left: auto;
+  padding: 5px 10px;
+  font-size: 0.66rem;
+}
+
+/* Generated prose. Distinct typography from the catalog's editorial on purpose:
+   a learner must be able to tell which words the platform stored and which a
+   model produced without reading the attribution line. */
+.ai-markdown {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.68;
+}
+
+.ai-markdown-heading {
+  margin: 16px 0 7px;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.ai-markdown-heading:first-child {
+  margin-top: 0;
+}
+
+.ai-markdown-paragraph {
+  margin: 0 0 10px;
+}
+
+.ai-markdown-list {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 11px;
+  padding-left: 19px;
+}
+
+.ai-markdown-list li::marker {
+  color: var(--primary-bright);
+}
+
+.ai-markdown-quote {
+  margin: 0 0 11px;
+  padding: 9px 12px;
+  color: var(--text-soft);
+  background: var(--primary-soft);
+  border-left: 2px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.ai-markdown-quote .ai-markdown-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.ai-markdown-code {
+  overflow-x: auto;
+  margin: 0 0 11px;
+  padding: 11px 13px;
+  background: rgba(6, 10, 20, 0.7);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ai-markdown-code code {
+  color: #c2cbe1;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.ai-markdown p code,
+.ai-markdown li code {
+  padding: 1px 4px;
+  background: rgba(141, 154, 181, 0.12);
+  border-radius: 4px;
+  font-size: 0.72em;
+}
+
+.ai-markdown strong {
+  color: var(--text);
+}
+
+.ai-markdown a {
+  color: var(--primary-bright);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-complexity-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 13px 0 0;
+}
+
+.ai-complexity-facts > div {
+  padding: 10px 12px;
+  background: rgba(141, 154, 181, 0.05);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ai-complexity-facts dt {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ai-complexity-facts dd {
+  margin: 5px 0 0;
+  color: var(--mint);
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.ai-grounding-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 13px 0 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.ai-grounding-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.submission-diagnosis {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.submission-diagnosis-head h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.submission-diagnosis-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}

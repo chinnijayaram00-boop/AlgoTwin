@@ -12,10 +12,3 @@ class AlgorithmResponse(BaseModel):
 
 class AlgorithmListResponse(BaseModel):
     items: list[AlgorithmResponse]
-
-
-class AIStatusResponse(BaseModel):
-    provider: str
-    configured: bool
-    model: str
-    message: str

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.models.base import Base
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids an import cycle
+    from database.models.ai_insight import AIInsight
     from database.models.progress import Progress
     from database.models.submission import Submission
 
@@ -36,6 +37,16 @@ class User(Base):
     # attempt behind, so the ORM cascade mirrors the `ondelete="CASCADE"` on the
     # foreign key.
     submissions: Mapped[list["Submission"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # Generated AI insights are the learner's own: nobody else may read them, and
+    # a deleted account must leave none behind. Same reasoning as the two above,
+    # and the `ondelete="CASCADE"` on the foreign key means the rows go even if
+    # the ORM cascade never runs.
+    ai_insights: Mapped[list["AIInsight"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

@@ -1,3 +1,4 @@
+from database.models.ai_insight import AIInsight
 from database.models.problem import (
     DEFAULT_MEMORY_LIMIT_MB,
     DEFAULT_TIME_LIMIT_MS,
@@ -640,3 +641,33 @@ def ensure_submission_schema(bind: Engine) -> None:
             _add_submission_checks(bind, missing)
 
     _ensure_submission_indexes(bind)
+
+
+# ---------------------------------------------------------------------------
+# AI insights
+# ---------------------------------------------------------------------------
+
+
+def ensure_ai_insight_schema(bind: Engine) -> None:
+    """Create the ``ai_insights`` table when this release introduces it.
+
+    Mirrors the Alembic revision ``f_ai_insights``, and unlike every other
+    ``ensure_*`` function here it does not adopt a legacy shape. This is the
+    release that adds the table, so there is no earlier version of it to bring
+    forward: the only state to reach is "present" or "absent".
+
+    The DDL comes from the model itself rather than from a hand-written copy.
+    Every other function in this module mirrors a table that predates the
+    declarative models and therefore has to state its own SQL; here the two
+    cannot drift, because there is only one definition. It is also the only
+    honest way to reproduce a composite unique constraint, a CHECK over the kind
+    vocabulary, and four indexes consistently on SQLite and PostgreSQL.
+
+    Creating a table that does not exist is non-destructive by definition, so
+    this runs unconditionally at start-up. It is idempotent: the presence check
+    makes a second call a no-op, which also covers a database
+    ``Base.metadata.create_all`` has already provisioned.
+    """
+    if "ai_insights" in inspect(bind).get_table_names():
+        return
+    AIInsight.__table__.create(bind=bind, checkfirst=True)

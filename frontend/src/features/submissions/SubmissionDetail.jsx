@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import DiagnosisPanel from "../ai/DiagnosisPanel";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/Feedback";
 import SubmissionStatusPill from "./SubmissionStatusPill";
 import { useSubmissionDetail } from "./useSubmissions";
@@ -39,6 +40,10 @@ import {
  * The judge's measurements are shown, because they are what the learner came
  * back for. What is not shown is any per-case detail: the API stores none, so
  * there is nothing to show, and the hidden suite stays unreadable from here.
+ *
+ * The generated diagnosis is rendered last, for the same reason the verdict is
+ * rendered first: it is an interpretation of the facts above it, and putting it
+ * above them would invite the reader to treat it as one of the facts.
  */
 export default function SubmissionDetail({ submissionId, enabled = true }) {
   const { data, error, errorStatus, loading, reload } = useSubmissionDetail(submissionId, { enabled });
@@ -158,6 +163,23 @@ export default function SubmissionDetail({ submissionId, enabled = true }) {
           <code>{data.source_code}</code>
         </pre>
       </div>
+
+      {/*
+        The diagnosis sits below the source rather than above the verdict. It is
+        commentary on the result, and a learner looking for "what went wrong" reads
+        it after the facts, not instead of them.
+
+        It is keyed on the submission id so that selecting a different submission
+        clears the previous diagnosis instead of leaving one result's commentary
+        under another's facts.
+      */}
+      <section className="submission-diagnosis">
+        <div className="submission-diagnosis-head">
+          <h4>Generated diagnosis</h4>
+          <p>Grounded in the recorded verdict and the judge's measurements.</p>
+        </div>
+        <DiagnosisPanel enabled={enabled} status={data.status} submissionId={data.id} />
+      </section>
 
       <footer className="submission-detail-foot">
         <p className="submission-disclaimer">

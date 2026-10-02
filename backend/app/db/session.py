@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.core.config import get_settings
 from backend.app.db.schema import (
+    ensure_ai_insight_schema,
     ensure_problem_schema,
     ensure_progress_schema,
     ensure_submission_schema,
@@ -49,6 +50,11 @@ def init_db() -> None:
     ensure_problem_schema(engine)
     ensure_progress_schema(engine)
     ensure_submission_schema(engine)
+    # Last, because `ai_insights` declares foreign keys into `users`, `problems`,
+    # and `submissions`. SQLite will happily create a table referencing a table
+    # that does not exist yet and only complain at insert time, so the ordering is
+    # ours to get right rather than the engine's.
+    ensure_ai_insight_schema(engine)
     # The catalog and the demo account are seeded independently. The catalog is
     # what a learner actually practises on, and a deployment that turns
     # `SEED_DEMO_DATA` off to avoid shipping the published demo password must

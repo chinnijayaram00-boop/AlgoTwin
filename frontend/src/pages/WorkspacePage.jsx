@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import CodeEditor from "../features/problems/CodeEditor";
+import ComplexityPanel from "../features/ai/ComplexityPanel";
+import ExplanationPanel from "../features/ai/ExplanationPanel";
 import JudgeResultPanel from "../features/judge/JudgeResultPanel";
 import { formatPeakMemory, formatRunDuration, languageLabel } from "../features/judge/judgeStatus";
 import { useCodeRun, useRunnableLanguages } from "../features/judge/useCodeRun";
@@ -233,6 +235,12 @@ export default function WorkspacePage() {
           <SectionCard title="Your progress" description="Owned by the judge, stored against your account.">
             <ProblemProgressPanel problemId={problem.id} refreshKey={judgedCount} />
           </SectionCard>
+          <SectionCard
+            title="Approach, explained"
+            description="Generated from this problem's own record. Stored editorial is never shown here."
+          >
+            <ExplanationPanel enabled={isAuthenticated} problemId={problem.id} />
+          </SectionCard>
           <SectionCard title="Test cases" description="Examples from the problem contract.">
             <div className="test-case-list">
               {problem.examples?.map((example, index) => (
@@ -251,15 +259,26 @@ export default function WorkspacePage() {
                 <span>Peak memory</span>
                 <strong>{formatPeakMemory(lastRun?.peak_memory_mb) ?? "Not measured"}</strong>
               </div>
-              <div><span>Space</span><strong>Not measured</strong></div>
-              <div><span>AI explanation</span><strong>Provider pending</strong></div>
+              {/*
+                Space is genuinely not measurable from a run: peak RSS is not the
+                program's auxiliary space, and printing a number here would be a
+                measurement this platform did not take. It says so.
+              */}
+              <div><span>Space</span><strong>Needs a complexity analysis</strong></div>
             </div>
             {/*
-              A run measures time and, where the platform can, memory. It does
-              not analyse complexity -- that needs the AI provider boundary, which
-              is still a placeholder rather than an integration.
+              A run measures time and, where the platform can, memory. It cannot
+              analyse space complexity -- that needs a model, and the model says
+              so itself when it cannot tell. The button below generates that
+              analysis for the code currently in the editor.
             */}
-            <div className="analysis-note"><Sparkles size={15} /> Time and memory come from your last run. Complexity analysis needs the AI provider, which is not connected yet.</div>
+            <div className="analysis-note"><Sparkles size={15} /> Time and memory come from your last run. Space complexity is an analysis, not a measurement, and is generated on request below.</div>
+            <ComplexityPanel
+              enabled={isAuthenticated}
+              language={language}
+              problemId={problem.id}
+              sourceCode={code}
+            />
           </SectionCard>
         </div>
       </div>

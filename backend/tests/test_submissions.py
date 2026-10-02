@@ -231,7 +231,16 @@ def test_the_retired_paths_are_registered_before_the_submission_id_route() -> No
 
 
 def test_a_retired_path_is_not_published_in_the_openapi_contract() -> None:
-    """A tombstone documents the absence of a route, so it must not add one."""
+    """A tombstone documents the absence of a route, so it must not add one.
+
+    The expected set is written out in full rather than derived from the router,
+    because deriving it would make the assertion true by construction -- including
+    if a tombstone were ever registered and the expectation followed it round.
+
+    ``{submission_id}/diagnose`` is a real route owned by the AI feature. It is named
+    explicitly here so that a future sub-path is a deliberate addition to this line
+    and not an accident.
+    """
     from backend.app.main import app
 
     published = {
@@ -240,7 +249,11 @@ def test_a_retired_path_is_not_published_in_the_openapi_contract() -> None:
         if path.startswith(SUBMISSIONS) and "{" in path
     }
 
-    assert published == {f"{SUBMISSIONS}/{{submission_id}}"}
+    assert published == {
+        f"{SUBMISSIONS}/{{submission_id}}",
+        f"{SUBMISSIONS}/{{submission_id}}/diagnose",
+    }
+    assert not [path for path in published if path.rsplit("/", 1)[-1] in RETIRED_CATALOGUE_PATHS]
 
 
 # ----------------------------------------------------------------- validation
