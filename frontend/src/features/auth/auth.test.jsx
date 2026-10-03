@@ -11,6 +11,13 @@ import { TOKEN_KEY } from "./authStorage";
 import { authService } from "./authService";
 import { useAuth } from "./useAuth";
 
+// `<App />` routes to the problem workspace, and the workspace imports the Monaco
+// editor's bundler-side setup. That module pulls in Vite `?worker` specifiers and the
+// whole editor bundle, which jsdom cannot resolve or load -- and the editor is never
+// rendered by anything in this file. It is replaced rather than loaded, the same way
+// `CodeEditor.test.jsx` does it; its own wiring is pinned there and by the build.
+vi.mock("../problems/monacoSetup", () => ({}));
+
 vi.mock("./authService", () => ({
   authService: {
     login: vi.fn(),

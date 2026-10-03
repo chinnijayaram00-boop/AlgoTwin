@@ -131,7 +131,18 @@ export default function WorkspacePage() {
                 </button>
               ))}
             </div>
-            <button className="button button-quiet" onClick={() => setCode(problem.starter_code?.[language] || "")} type="button">
+            {/*
+              Named for what it resets. The progress panel on this page resets
+              progress and is labelled "Reset progress"; two controls on one screen
+              announcing the identical accessible name leave a screen reader user
+              with nothing to tell them apart by.
+            */}
+            <button
+              aria-label="Reset code"
+              className="button button-quiet"
+              onClick={() => setCode(problem.starter_code?.[language] || "")}
+              type="button"
+            >
               <RotateCcw size={14} /> Reset
             </button>
           </div>

@@ -1234,9 +1234,35 @@ pre {
   border-color: rgba(124, 108, 255, 0.2);
 }
 
+/*
+ * The editor frame must carry a *definite* height, not just a minimum.
+ *
+ * Monaco sizes itself from its container, and `@monaco-editor/react` mounts it at
+ * `height: 100%`. A percentage resolves against an auto-height parent by falling
+ * back to auto, so `min-height` alone made the frame 420px of background while the
+ * editor inside measured 0x0 and drew nothing. `clamp()` is a definite height: the
+ * editor now has real pixels to lay out into, the viewport tracks the window, and
+ * 400px is the floor on short screens.
+ */
 .editor-frame {
-  min-height: 420px;
+  position: relative;
+  height: clamp(340px, 44vh, 560px);
+  min-height: 400px;
   background: #0b1120;
+}
+
+/*
+ * Monaco's loading placeholder. `@monaco-editor/react` renders nothing at all while
+ * the editor is still starting up, which reads as a broken panel; this makes the
+ * wait explicit.
+ */
+.editor-frame-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }
 
 .inline-notice {
@@ -2808,3 +2834,489 @@ button.submission-row:hover {
   color: var(--text-muted);
   font-size: 0.7rem;
 }
+
+/* ==========================================================================
+   The algorithm lab
+   ==========================================================================
+
+   Two views, one vocabulary. A card in the picker is a `.algorithm-card`, which
+   is also the toggle for it -- so the selected state is the same component with
+   `is-selected` rather than a second component that could drift out of sync.
+
+   The palette below is built from the closed tone vocabulary the API publishes
+   (`.tone-idle` through `.tone-blocked`). Every tone has a colour, and so does
+   `.tone-idle`: an unhighlighted cell has to look deliberately quiet rather than
+   looking like a cell whose tone failed to render.
+
+   Cells are sized by a shared scale within a row, because bars encode magnitude.
+   A row of values around 500 and a row of values around 5 have to look different,
+   or the picture is lying about the data.
+   ========================================================================== */
+
+.algorithm-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-soft);
+  cursor: pointer;
+  background: rgba(141, 154, 181, 0.045);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.algorithm-card:hover:not(:disabled) {
+  border-color: rgba(124, 108, 255, 0.42);
+  transform: translateY(-1px);
+}
+
+.algorithm-card:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.algorithm-card.is-selected {
+  color: var(--text);
+  background: var(--primary-soft);
+  border-color: rgba(124, 108, 255, 0.55);
+}
+
+.algorithm-card strong {
+  font-size: 0.83rem;
+}
+
+.algorithm-category {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.algorithm-card .algorithm-complexity {
+  justify-content: flex-start;
+  gap: 14px;
+}
+
+.compare-group + .compare-group {
+  margin-top: 18px;
+}
+
+.compare-group-label {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.trace-card .algorithm-complexity {
+  justify-content: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.trace-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.trace-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.frame-view {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  background: rgba(8, 12, 24, 0.55);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.frame-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.frame-row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.frame-row-label {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frame-cells {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  min-height: 30px;
+}
+
+.frame-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  padding: 6px 5px;
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+/* Bars fill from the bottom, so the height the renderer computed is the height the
+   learner reads. `justify-content: flex-end` on the container is what pins them. */
+.frame-bar_array .frame-cell {
+  justify-content: flex-end;
+  min-height: 34px;
+}
+
+.frame-grid .frame-cells,
+.frame-text .frame-cells {
+  align-items: stretch;
+}
+
+.frame-grid .frame-cell {
+  min-width: 26px;
+}
+
+.frame-cell-detail {
+  position: absolute;
+  bottom: -15px;
+  left: 50%;
+  color: var(--text-muted);
+  font-size: 0.55rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.frame-cell.is-pointed::after {
+  position: absolute;
+  inset: -3px;
+  border: 1px solid var(--primary-bright);
+  border-radius: 9px;
+  content: "";
+}
+
+.tone-idle {
+  background: rgba(141, 154, 181, 0.07);
+}
+
+.tone-active {
+  color: var(--text);
+  background: var(--primary-soft);
+  border-color: rgba(124, 108, 255, 0.5);
+}
+
+.tone-compare {
+  color: var(--text);
+  background: var(--amber-soft);
+  border-color: rgba(244, 189, 106, 0.45);
+}
+
+.tone-pivot {
+  color: var(--text);
+  background: rgba(124, 108, 255, 0.28);
+  border-color: var(--primary-bright);
+}
+
+.tone-swap {
+  color: var(--text);
+  background: rgba(239, 130, 151, 0.26);
+  border-color: rgba(239, 130, 151, 0.6);
+}
+
+.tone-sorted {
+  color: #8aebd7;
+  background: var(--mint-soft);
+  border-color: rgba(60, 201, 176, 0.34);
+}
+
+.tone-match {
+  color: #8aebd7;
+  background: rgba(60, 201, 176, 0.28);
+  border-color: var(--mint);
+}
+
+.tone-visited {
+  color: var(--text-soft);
+  background: rgba(124, 108, 255, 0.14);
+}
+
+.tone-frontier {
+  color: var(--text);
+  background: rgba(124, 108, 255, 0.2);
+  border-style: dashed;
+}
+
+.tone-path {
+  color: var(--text);
+  background: rgba(60, 201, 176, 0.2);
+  border-color: rgba(60, 201, 176, 0.5);
+}
+
+.tone-blocked {
+  color: var(--text-muted);
+  background: rgba(239, 130, 151, 0.1);
+  border-color: rgba(239, 130, 151, 0.3);
+}
+
+.frame-auxiliary {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-soft);
+}
+
+.frame-auxiliary-label,
+.pointer-readout-label {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.frame-rows-compact .frame-cell {
+  min-width: 22px;
+  padding: 3px 4px;
+  font-size: 0.6rem;
+}
+
+.trace-side {
+  display: grid;
+  gap: 14px;
+}
+
+.pointer-chips,
+.metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pointer-chip,
+.metric-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  background: rgba(141, 154, 181, 0.07);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+}
+
+.pointer-chip code,
+.metric-chip code {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+}
+
+.pointer-chip span {
+  color: var(--text);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-chip strong {
+  color: var(--primary-bright);
+  font-size: 0.7rem;
+}
+
+.trace-result {
+  display: grid;
+  gap: 6px;
+}
+
+.trace-result strong {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+}
+
+.trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+.timeline-controls {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.timeline-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-scrubber {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-scrubber input {
+  flex: 1;
+  accent-color: var(--primary);
+}
+
+.timeline-position {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timeline-speed {
+  display: flex;
+  gap: 6px;
+}
+
+.speed-button {
+  padding: 4px 10px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.66rem;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+}
+
+.speed-button.is-active {
+  color: var(--text);
+  background: var(--primary-soft);
+  border-color: rgba(124, 108, 255, 0.5);
+}
+
+.timeline-explanation {
+  margin: 0;
+  min-height: 2.6em;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.comparison-result {
+  margin-top: 4px;
+}
+
+.comparison-warning {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--amber);
+  font-size: 0.72rem;
+  background: var(--amber-soft);
+  border: 1px solid rgba(244, 189, 106, 0.24);
+  border-radius: var(--radius-sm);
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.comparison-column {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(141, 154, 181, 0.045);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.comparison-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.comparison-metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.comparison-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.comparison-metric span {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+.comparison-metric strong {
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.comparison-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.comparison-answer {
+  margin: 0;
+  color: #8aebd7;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+}
+
+.comparison-error {
+  margin: 0;
+  color: var(--rose);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.comparison-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+}
+
+@media (max-width: 900px) {
+  .frame-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .algorithm-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+

@@ -177,7 +177,7 @@ describe("ProblemProgressPanel", () => {
     progressService.setStatus.mockResolvedValue({ ...RECORD, status: "not_started" });
     renderInRouter(<ProblemProgressPanel problemId={12} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^reset$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^reset progress$/i }));
     await waitFor(() =>
       expect(progressService.setStatus).toHaveBeenCalledWith(12, "not_started"),
     );

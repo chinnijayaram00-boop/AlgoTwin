@@ -547,8 +547,104 @@ def test_protected_route_requires_valid_token(client: TestClient) -> None:
 
 
 def test_public_endpoints_need_no_token(client: TestClient) -> None:
-    for path in ("/api/v1/health", "/api/v1/health/ready", "/api/v1/problems", "/api/v1/algorithms"):
+    for path in (
+        "/api/v1/health",
+        "/api/v1/health/ready",
+        "/api/v1/problems",
+        "/api/v1/algorithms",
+        "/api/v1/algorithms/categories",
+        "/api/v1/algorithms/bubble-sort",
+    ):
         assert client.get(path).status_code == 200, f"{path} should stay public"
+
+
+# ------------------------------------------------------- algorithm lab access
+#
+# The lab splits the two halves of a feature across the auth boundary on purpose.
+# The catalog is public -- a card naming a complexity is not learner data -- while
+# the two routes that spawn a worker process are guarded, because a worker costs the
+# deployment real CPU and real memory. These tests pin both halves, because the
+# failure mode of getting it wrong is invisible until somebody leaves it unauthenticated
+# and the process queue fills up.
+
+
+def test_algorithm_detail_is_public_and_names_real_algorithms(client: TestClient) -> None:
+    response = client.get("/api/v1/algorithms/bubble-sort")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["id"] == "bubble-sort"
+    # The detail route has to offer only pairings the compare route would accept, or
+    # the client can present a choice the backend will refuse.
+    assert "quick-sort" in payload["comparable_with"]
+    assert "kadane-max-subarray" not in payload["comparable_with"]
+
+
+def test_algorithm_detail_404s_for_an_unknown_id(client: TestClient) -> None:
+    response = client.get("/api/v1/algorithms/not-a-real-algorithm")
+
+    assert response.status_code == 404
+    # The message must not distinguish "no such algorithm" from "not published", the
+    # same way every other unknown-resource route answers.
+    assert response.json()["detail"] == "Algorithm not found."
+
+
+def test_visualize_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/algorithms/bubble-sort/visualize", json={"input": "5\n5 2 9 1 7"}
+    )
+
+    assert response.status_code == 401
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+
+def test_visualize_rejects_an_invalid_token_before_running_anything(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/v1/algorithms/bubble-sort/visualize",
+        json={"input": "5\n5 2 9 1 7"},
+        headers=auth("invalid-token"),
+    )
+
+    assert response.status_code == 401
+
+
+def test_compare_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/algorithms/compare",
+        json={"algorithms": [{"algorithm_id": "bubble-sort"}, {"algorithm_id": "quick-sort"}], "input": "4\n4 1 3 2"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_compare_rejects_an_invalid_token(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/algorithms/compare",
+        json={"algorithms": [{"algorithm_id": "bubble-sort"}, {"algorithm_id": "quick-sort"}], "input": "4\n4 1 3 2"},
+        headers=auth("invalid-token"),
+    )
+
+    assert response.status_code == 401
+
+
+def test_algorithm_lab_routes_accept_a_valid_token(client: TestClient) -> None:
+    """A signed-in learner gets a real timeline, not a refusal.
+
+    The one test in this file that actually spawns a worker, so it is also the one
+    that would catch a worker that cannot start at all.
+    """
+    token = register(client)["access_token"]
+
+    response = client.post(
+        "/api/v1/algorithms/bubble-sort/visualize",
+        json={"input": "5\n5 2 9 1 7"},
+        headers=auth(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["frames"], "an authenticated request should return a timeline"
 
 
 def test_logout_requires_authentication_and_returns_no_content(client: TestClient) -> None:

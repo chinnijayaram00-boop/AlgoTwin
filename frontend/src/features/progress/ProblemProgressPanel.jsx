@@ -91,7 +91,14 @@ export default function ProblemProgressPanel({ problemId, enabled = true, refres
         >
           <CheckCheck size={15} /> Mark as solved
         </button>
+        {/*
+          Named for what it resets. This panel sits beside the workspace editor,
+          which resets code and is labelled "Reset code"; two controls on one screen
+          announcing the identical accessible name leave a screen reader user with
+          nothing to tell them apart by.
+        */}
         <button
+          aria-label="Reset progress"
           className="button button-quiet"
           disabled={saving || data.status === "not_started"}
           onClick={() => setStatus("not_started")}

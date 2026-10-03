@@ -43,7 +43,19 @@ export function describeApiError(detail, fallback) {
   return fallback;
 }
 
-function isValidationFailure(detail) {
+/**
+ * Whether this failure was the API refusing the caller's input.
+ *
+ * A 422 is that answer by definition. FastAPI says so in two shapes: the
+ * `loc`/`msg`/`type` array a request-schema rejection produces, and the plain string
+ * a handler's own `HTTPException(422, detail=str(...))` produces. A handler has no
+ * array to offer, and the algorithm lab refuses every input it cannot parse that
+ * way -- so recognising only the array classified a rejected input as an ordinary
+ * server failure. The status is the signal; the array is kept as a fallback for a
+ * deployment that reports the shape without the status.
+ */
+function isValidationFailure(status, detail) {
+  if (status === 422) return true;
   return (
     Array.isArray(detail) &&
     detail.some((item) => item && typeof item === "object" && VALIDATION_TYPES.has(item.type))
@@ -99,7 +111,7 @@ async function request(path, options = {}) {
       );
       error.status = response.status;
       error.detail = payload?.detail ?? null;
-      error.isValidationError = isValidationFailure(payload?.detail);
+      error.isValidationError = isValidationFailure(response.status, payload?.detail);
       throw error;
     }
     return payload;

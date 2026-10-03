@@ -95,6 +95,28 @@ class Settings(BaseSettings):
     # rather than raise this.
     max_judge_wall_clock_ms: int = Field(default=30_000, ge=1_000, le=600_000)
 
+    # The algorithm lab. `VISUALIZATION_ENABLED=false` is the same kind of kill
+    # switch `EXECUTION_ENABLED` is, and it is separate from that one on purpose:
+    # the lab runs the platform's *own* reference implementations, which a
+    # deployment may reasonably want switched off -- an embedded judge with no spare
+    # process capacity, or a review environment -- while leaving the judged
+    # submissions path untouched. When it is off, both the visualize route and the
+    # compare route answer 503 and start no worker at all.
+    visualization_enabled: bool = True
+    # The wall clock for one visualization or comparison side. These are traced
+    # reference implementations over inputs capped at a few dozen elements, so the
+    # default is far more than a normal run needs; it exists to bound a buggy one.
+    visualization_wall_clock_ms: int = Field(default=3_000, ge=100, le=30_000)
+    # The most frames one visualization may return. A run that would produce more is
+    # capped and reported as truncated rather than shipped in full, because a
+    # timeline is something a person steps through.
+    visualization_max_frames: int = Field(default=2_000, ge=1, le=20_000)
+    # How many times each comparison side repeats the *same* input inside its own
+    # worker before reporting the median. One repetition of a traced algorithm on a
+    # handful of elements is dominated by first-call overhead, so a single sample
+    # would be reporting the measurement apparatus rather than the algorithm.
+    visualization_repetitions: int = Field(default=5, ge=1, le=25)
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",

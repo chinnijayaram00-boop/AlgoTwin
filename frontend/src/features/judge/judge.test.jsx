@@ -386,6 +386,20 @@ describe("the workspace run affordance", () => {
     submissionService.create.mockResolvedValue({ id: 31, language: "python", status: "queued" });
   });
 
+  /**
+   * The editor mounts before the problem's starter reaches it: `code` starts empty
+   * and an effect fills it in once the problem lands. Waiting for the textarea is
+   * not the same as waiting for that. Every test here presses Run, and Run is
+   * disabled while the buffer is empty -- a click dropped on a disabled button is
+   * indistinguishable from a page that never reacted, and a `clear` typed into the
+   * still-empty buffer lands on top of the starter. So wait for the starter.
+   */
+  async function starterLoaded() {
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+    return editor;
+  }
+
   it("draws the language tabs from the registry, not from a list in the bundle", async () => {
     judgeService.languages.mockResolvedValue({
       items: [{ id: "python", label: "Python" }],
@@ -418,7 +432,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(gradedRun());
     renderWorkspace();
 
-    const editor = await screen.findByLabelText(/code editor/i);
+    const editor = await starterLoaded();
     await userEvent.clear(editor);
     await userEvent.type(editor, "print(1)");
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
@@ -436,7 +450,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(gradedRun({ language: "python" }));
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("tab", { name: /python/i }));
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
 
@@ -451,7 +465,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(adHocRun());
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("button", { name: /my own input/i }));
     await userEvent.type(screen.getByLabelText(/standard input/i), "4 2 7 11 15\n9");
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
@@ -467,7 +481,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(gradedRun());
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("button", { name: /my own input/i }));
     await userEvent.click(screen.getByRole("button", { name: /visible test cases/i }));
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
@@ -482,7 +496,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(gradedRun());
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
     expect(await screen.findByText("2 of 2 test cases passed")).toBeInTheDocument();
 
@@ -503,7 +517,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockRejectedValue(new Error("Code execution is disabled on this deployment."));
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
 
     expect(await screen.findByText(/execution is disabled on this deployment/i)).toBeInTheDocument();
@@ -516,7 +530,7 @@ describe("the workspace run affordance", () => {
     judgeService.run.mockResolvedValue(gradedRun());
     renderWorkspace();
 
-    await screen.findByLabelText(/code editor/i);
+    await starterLoaded();
     await userEvent.click(screen.getByRole("button", { name: /run test cases/i }));
     await screen.findByText("Accepted");
 
@@ -533,6 +547,114 @@ describe("the workspace run affordance", () => {
     // Run and Submit sit side by side and grade very differently. A learner
     // reading only the buttons would not know that, so the page has to say it.
     expect(await screen.findAllByText(/hidden ones included/i)).not.toHaveLength(0);
+  });
+});
+
+describe("the workspace editor wiring", () => {
+  beforeEach(() => {
+    PAGE_PROBLEM.starter_code = {
+      javascript: "function solve() {\n  return 0;\n}\n",
+      python: "def solve():\n    return 0\n",
+    };
+    PAGE_PROBLEM.time_limit_ms = 1000;
+    PAGE_PROBLEM.memory_limit_mb = 256;
+    problemApi.get.mockResolvedValue(PAGE_PROBLEM);
+    progressService.problem.mockResolvedValue(PROGRESS_RECORD);
+    submissionService.forProblem.mockResolvedValue({ items: [], total: 0 });
+    submissionService.create.mockResolvedValue({ id: 31, language: "javascript", status: "queued" });
+  });
+
+  it("opens on the problem's starter code for the selected language", async () => {
+    renderWorkspace();
+
+    // A learner who opens a problem should be able to see what they are editing.
+    // The editor renders whatever `code` holds, so the starter has to reach it.
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+  });
+
+  it("shows the other language's starter when the tab changes", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+
+    await user.click(screen.getByRole("tab", { name: /python/i }));
+
+    // Each tab is its own starter, not the previous language's leftovers.
+    await waitFor(() => expect(editor.value).toContain("def solve():"));
+    expect(editor.value).not.toContain("function solve()");
+  });
+
+  it("restores the starter code on reset", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+    await user.clear(editor);
+    await user.type(editor, "const answer = 42;");
+    await waitFor(() => expect(editor.value).toBe("const answer = 42;"));
+
+    await user.click(screen.getByRole("button", { name: /reset code/i }));
+
+    // Reset means the problem's own starter, for the language currently selected --
+    // not the starter of whichever tab was open first.
+    await waitFor(() => expect(editor.value).toBe(PAGE_PROBLEM.starter_code.javascript));
+  });
+
+  it("resets to the selected language's starter, not the first one", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+    await user.click(screen.getByRole("tab", { name: /python/i }));
+    await waitFor(() => expect(editor.value).toContain("def solve():"));
+    await user.clear(editor);
+
+    await user.click(screen.getByRole("button", { name: /reset code/i }));
+
+    await waitFor(() => expect(editor.value).toBe(PAGE_PROBLEM.starter_code.python));
+  });
+
+  it("submits what is in the editor now, not the starter it opened with", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+    await user.clear(editor);
+    await user.type(editor, "console.log(1);");
+
+    await user.click(screen.getByRole("button", { name: /submit solution/i }));
+
+    await waitFor(() =>
+      expect(submissionService.create).toHaveBeenCalledWith({
+        // A submission is stored against a problem; the id travels with the source.
+        problemId: 2,
+        language: "javascript",
+        sourceCode: "console.log(1);",
+      }),
+    );
+  });
+
+  it("does not enable Run or Submit on an empty buffer", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const editor = await screen.findByLabelText(/code editor/i);
+    await waitFor(() => expect(editor.value).toContain("function solve()"));
+
+    await user.clear(editor);
+
+    // Empty source is not something to send to a judge; the affordances say so
+    // rather than accepting it and grading nothing.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /run test cases/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /submit solution/i })).toBeDisabled();
+    });
   });
 });
 

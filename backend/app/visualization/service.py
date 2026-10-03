@@ -1,23 +1,39 @@
-from dataclasses import dataclass
+"""Where the algorithm lab's public types lived before they had an implementation.
 
+The foundation release published :class:`VisualizationRequest`,
+:class:`VisualizationFrame`, :class:`VisualizationService` and
+:class:`VisualizationNotConfiguredError` here, with the service raising
+"not configured" because there was nothing to run. All four still exist -- they are
+now backed by the registry and the worker rather than by a stub -- but they live in
+:mod:`backend.app.services.visualization_service`, next to the code that uses them,
+so that "what a frame means" has one definition in the platform.
 
-class VisualizationNotConfiguredError(RuntimeError):
-    pass
+This module re-exports them rather than deleting them. A dead stub that raises is
+worse than no module; a module that keeps the old import path working is neither.
+"""
 
+from backend.app.services.visualization_service import (
+    AlgorithmNotFoundError,
+    InvalidVisualizationInputError,
+    VisualizationFrame,
+    VisualizationNotConfiguredError,
+    VisualizationRequest,
+    VisualizationResult,
+    VisualizationService,
+    VisualizationUnavailableError,
+    describe_algorithm,
+    visualize_algorithm,
+)
 
-@dataclass(frozen=True)
-class VisualizationRequest:
-    algorithm_id: str
-    input: str
-
-
-@dataclass(frozen=True)
-class VisualizationFrame:
-    step: int
-    state: dict[str, object]
-    explanation: str
-
-
-class VisualizationService:
-    def generate_frames(self, request: VisualizationRequest) -> tuple[VisualizationFrame, ...]:
-        raise VisualizationNotConfiguredError("Algorithm execution is not enabled in the foundation release.")
+__all__ = [
+    "AlgorithmNotFoundError",
+    "InvalidVisualizationInputError",
+    "VisualizationFrame",
+    "VisualizationNotConfiguredError",
+    "VisualizationRequest",
+    "VisualizationResult",
+    "VisualizationService",
+    "VisualizationUnavailableError",
+    "describe_algorithm",
+    "visualize_algorithm",
+]
