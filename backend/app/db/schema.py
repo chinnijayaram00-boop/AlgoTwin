@@ -5,9 +5,10 @@ from database.models.problem import (
     PROBLEM_ADDED_COLUMNS,
 )
 from database.models.progress import LEGACY_STATUS_MAP, PROGRESS_STATUS_VALUES
-from database.models.submission import SUBMISSION_STATUS_VALUES
-from sqlalchemy import DateTime, String, inspect, text
+from database.models.submission import SUBMISSION_STATUS_VALUES, Submission
+from sqlalchemy import Column, DateTime, String, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.interfaces import Dialect
 
 
 def _column_types(bind: Engine) -> tuple[str, str, str]:
@@ -351,21 +352,51 @@ SUBMISSION_INDEXES: tuple[tuple[str, str], ...] = (
 )
 
 # Columns the rebuilt table carries, in the order the model declares them.
-SUBMISSION_CANONICAL_COLUMNS: tuple[str, ...] = (
-    "id",
-    "user_id",
-    "problem_id",
-    "language",
-    "source_code",
-    "status",
-    "test_cases_passed",
-    "test_cases_total",
-    "runtime_ms",
-    "memory_mb",
-"error_message",
-    "submitted_at",
-    "judged_at",
-)
+#
+# Derived from the model rather than written out, for the reason
+# `ensure_ai_insight_schema` gives: there is exactly one definition of this
+# table's shape, so the rebuild cannot be handed a stale copy of it. It used to
+# be a literal tuple paired with a second literal `column_ddl` mapping, and the
+# two disagreed -- `judged_at` was in the tuple and not in the mapping, so
+# `_rebuild_sqlite_submissions` died on a `KeyError` and every step after the
+# rebuild (the `submitted_at` backfill, retiring the placeholder columns, adding
+# the indexes) never ran. Two hand-maintained copies of one shape is the defect;
+# one copy read from the model is the fix.
+SUBMISSION_CANONICAL_COLUMNS: tuple[str, ...] = tuple(Submission.__table__.columns.keys())
+
+
+def _submission_column_ddl(column: Column, dialect: Dialect) -> str:
+    """Render one model column as a SQLite column definition.
+
+    The type is compiled against the engine's own dialect rather than spelled
+    out, so ``DateTime(timezone=True)`` becomes whatever that backend actually
+    stores dates as, and nullability and the primary key come from the model
+    instead of from a hand-copied list.
+    """
+    parts = [f'"{column.name}"', column.type.compile(dialect=dialect)]
+    if not column.nullable:
+        parts.append("NOT NULL")
+    if column.primary_key:
+        parts.append("PRIMARY KEY")
+    return " ".join(parts)
+
+
+def _submission_foreign_key_ddl(column: Column) -> list[str]:
+    """Render the table-level foreign keys one model column declares.
+
+    ``ON DELETE`` is carried across verbatim. It is what makes a removed account
+    or problem leave no submissions behind, so dropping it during a rebuild would
+    quietly change the table's behaviour rather than just its shape.
+    """
+    statements = []
+    for foreign_key in column.foreign_keys:
+        target = foreign_key.column
+        on_delete = f" ON DELETE {foreign_key.ondelete}" if foreign_key.ondelete else ""
+        statements.append(
+            f'FOREIGN KEY("{column.name}")'
+            f" REFERENCES {target.table.name}({target.name}){on_delete}"
+        )
+    return statements
 
 
 def _submission_status_case() -> str:
@@ -399,16 +430,44 @@ def _rebuild_sqlite_submissions(bind: Engine) -> None:
     * ``submitted_at`` falls back to the placeholder's ``created_at``, which was
       the same fact under the old name, and then to the current time;
     * a measurement the table does not have is null, which is the honest value
-      for a run that has not been reported.
+      for a run that has not been reported;
+    * a measurement that could not have happened -- a negative duration, more
+      cases passed than run -- is nulled in the copy itself, by the same rules the
+      statements below apply afterwards. Copying it verbatim would be rejected by
+      the constraints the rebuild is creating, aborting the whole upgrade on the
+      exact rows the rules exist to repair.
     """
     existing = {column["name"] for column in inspect(bind).get_columns("submissions")}
-    date_type = DateTime(timezone=True).compile(dialect=bind.dialect)
+    canonical = Submission.__table__
     checks = ", ".join(
         f"CONSTRAINT {name} CHECK ({expression})"
         for name, expression in SUBMISSION_CHECK_CONSTRAINTS
     )
 
+    def measurement(column: str) -> str:
+        """A non-negative measurement, with an impossible one already nulled."""
+        value = column if column in existing else "NULL"
+        return f"CASE WHEN {value} IS NOT NULL AND {value} < 0 THEN NULL ELSE {value} END"
+
+    # Resolved in dependency order: the passed count is judged against the total
+    # the copy is actually going to store, not against the stored total, so a
+    # negative total that is nulled here cannot condemn the count beside it.
+    total_cases = measurement("test_cases_total")
+    passed_cases = measurement("test_cases_passed")
+    passed_cases = (
+        f"CASE WHEN {passed_cases} IS NOT NULL AND {passed_cases} > {total_cases}"
+        f" THEN NULL ELSE {passed_cases} END"
+    )
+    measurements = {
+        "test_cases_total": total_cases,
+        "test_cases_passed": passed_cases,
+        "runtime_ms": measurement("runtime_ms"),
+        "memory_mb": measurement("memory_mb"),
+    }
+
     def source_for(column: str) -> str:
+        if column in measurements:
+            return measurements[column]
         if column == "status":
             return _submission_status_case()
         if column == "submitted_at":
@@ -424,21 +483,16 @@ def _rebuild_sqlite_submissions(bind: Engine) -> None:
 
     select_list = ", ".join(source_for(column) for column in SUBMISSION_CANONICAL_COLUMNS)
     target_list = ", ".join(f'"{column}"' for column in SUBMISSION_CANONICAL_COLUMNS)
-    column_ddl = {
-        "id": "id INTEGER NOT NULL PRIMARY KEY",
-        "user_id": "user_id INTEGER NOT NULL",
-        "problem_id": "problem_id INTEGER NOT NULL",
-        "language": "language VARCHAR(40) NOT NULL",
-        "source_code": "source_code TEXT NOT NULL",
-        "status": "status VARCHAR(30) NOT NULL",
-        "test_cases_passed": "test_cases_passed INTEGER",
-        "test_cases_total": "test_cases_total INTEGER",
-        "runtime_ms": "runtime_ms INTEGER",
-        "memory_mb": "memory_mb INTEGER",
-        "error_message": "error_message TEXT",
-        "submitted_at": f"submitted_at {date_type} NOT NULL",
-    }
-    definitions = ",\n                    ".join(column_ddl[column] for column in SUBMISSION_CANONICAL_COLUMNS)
+    # Every column and every foreign key is read off the model, so a column added
+    # to `Submission` is rebuilt correctly without a second edit here. `judged_at`
+    # in particular is copied when the live table already has it, which is what
+    # preserves a recorded judging timestamp.
+    definitions = ",\n                    ".join(
+        _submission_column_ddl(column, bind.dialect) for column in canonical.columns
+    )
+    foreign_keys = ",\n                    ".join(
+        statement for column in canonical.columns for statement in _submission_foreign_key_ddl(column)
+    )
 
     with bind.connect() as connection:
         foreign_keys_enabled = bool(connection.exec_driver_sql("PRAGMA foreign_keys").scalar())
@@ -454,8 +508,7 @@ def _rebuild_sqlite_submissions(bind: Engine) -> None:
                 f"""
                 CREATE TABLE submissions_rebuilt (
                     {definitions},
-                    FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
-                    FOREIGN KEY(problem_id) REFERENCES problems (id) ON DELETE CASCADE,
+                    {foreign_keys},
                     {checks}
                 )
                 """

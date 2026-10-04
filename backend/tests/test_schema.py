@@ -1,9 +1,16 @@
 import pytest
+from database.models import Submission
 from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.dialects import sqlite
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateIndex, CreateTable
 
-from backend.app.db.schema import ensure_progress_schema, ensure_user_schema
+from backend.app.db.schema import (
+    ensure_progress_schema,
+    ensure_submission_schema,
+    ensure_user_schema,
+)
 
 LEGACY_SCHEMA = """
 CREATE TABLE users (
@@ -243,3 +250,380 @@ def test_upgrade_is_a_no_op_without_a_progress_table() -> None:
     ensure_progress_schema(engine)
 
     assert "progress" not in inspect(engine).get_table_names()
+
+
+# ---------------------------------------------------------------------------
+# submissions
+# ---------------------------------------------------------------------------
+
+SUBMISSION_COLUMNS = (
+    "id",
+    "user_id",
+    "problem_id",
+    "language",
+    "source_code",
+    "status",
+    "test_cases_passed",
+    "test_cases_total",
+    "runtime_ms",
+    "memory_mb",
+    "error_message",
+    "submitted_at",
+    "judged_at",
+)
+
+SUBMISSION_INDEXES = {
+    "ix_submissions_problem_id",
+    "ix_submissions_status",
+    "ix_submissions_submitted_at",
+    "ix_submissions_user_id",
+    "ix_submissions_user_submitted_at",
+}
+
+SUBMISSION_CHECKS = {
+    "ck_submissions_memory_mb",
+    "ck_submissions_runtime_ms",
+    "ck_submissions_status",
+    "ck_submissions_test_case_counts",
+}
+
+# One judged and one still queued, so a test can tell a preserved verdict from an
+# invented one.
+SUBMISSION_ROWS = """
+INSERT INTO submissions (id, user_id, problem_id, language, source_code, status,
+                         test_cases_passed, test_cases_total, runtime_ms, memory_mb,
+                         error_message, submitted_at, judged_at)
+    VALUES (1, 1, 1, 'python', 'def solve(): return 3', 'accepted', 3, 4, 17, 9,
+            'partial output on the hidden cases', '2026-02-01 10:00:00', '2026-02-01 10:00:01'),
+           (2, 1, 2, 'python', 'def solve(): raise', 'queued', NULL, NULL, NULL, NULL,
+            NULL, '2026-02-02 11:00:00', NULL);
+"""
+
+REFERENCED_SCHEMA = """
+CREATE TABLE users (
+    id INTEGER NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    email VARCHAR(320) NOT NULL,
+    password_hash VARCHAR(255),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE problems (
+    id INTEGER NOT NULL,
+    slug VARCHAR(120) NOT NULL,
+    PRIMARY KEY (id)
+);
+INSERT INTO users (id, name, email, created_at, updated_at)
+    VALUES (1, 'Old Learner', 'old@example.com', '2024-01-01 00:00:00', '2024-01-01 00:00:00');
+INSERT INTO problems (id, slug) VALUES (1, 'two-sum'), (2, 'binary-search');
+"""
+
+
+def _canonical_submissions_ddl() -> str:
+    """The ``submissions`` DDL as ``Base.metadata.create_all`` would emit it.
+
+    Read off the model rather than written out here, so "canonical" cannot drift
+    away from the thing the application actually builds and this test keeps
+    meaning what it says.
+    """
+    table = Submission.__table__
+    dialect = sqlite.dialect()
+    statements = [
+        str(CreateTable(table).compile(dialect=dialect)).strip(),
+        *(str(CreateIndex(index).compile(dialect=dialect)).strip() for index in table.indexes),
+    ]
+    return ";\n".join(statements) + ";"
+
+
+def build_submission_engine(submissions_table: str, rows: str = SUBMISSION_ROWS):
+    """An engine holding ``submissions`` in a given shape, with rows to protect.
+
+    Foreign keys are enforced, so a rebuild that drops a row or points one at the
+    wrong parent fails here rather than going unnoticed.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_connection, _record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    with engine.begin() as connection:
+        for statement in (REFERENCED_SCHEMA + submissions_table + rows).split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+    return engine
+
+
+def build_canonical_submission_engine(rows: str = SUBMISSION_ROWS):
+    return build_submission_engine(_canonical_submissions_ddl(), rows=rows)
+
+
+def test_upgrade_is_a_no_op_without_a_submissions_table() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+
+    ensure_submission_schema(engine)
+
+    assert "submissions" not in inspect(engine).get_table_names()
+
+
+def test_a_canonical_submissions_table_is_left_exactly_as_it_is() -> None:
+    """The common case: a database already at the current shape changes nothing.
+
+    Asserted as full-row equality on both sides of the call rather than on the
+    values alone, so a rebuild that happened to reproduce the values would still
+    fail this -- it would have thrown away the table's identity for no reason.
+    """
+    engine = build_canonical_submission_engine()
+
+    with engine.connect() as connection:
+        before = connection.execute(text("SELECT * FROM submissions ORDER BY id")).all()
+
+    ensure_submission_schema(engine)
+    ensure_submission_schema(engine)  # idempotent
+
+    assert {column["name"] for column in inspect(engine).get_columns("submissions")} == set(
+        SUBMISSION_COLUMNS
+    )
+    assert SUBMISSION_INDEXES <= {
+        index["name"] for index in inspect(engine).get_indexes("submissions")
+    }
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT * FROM submissions ORDER BY id")).all() == before
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_a_submissions_table_missing_checks_and_indexes_gains_both_on_rebuild() -> None:
+    """A table with the columns but not yet the constraints is rebuilt for both.
+
+    The fixture is the interesting middle state: every canonical column is
+    present and one CHECK is declared, so the earlier rebuild trigger -- retired
+    ``NOT NULL`` placeholder columns, or no checks at all -- deliberately does not
+    fire. The rebuild happens later instead, on the missing-checks path, because
+    SQLite can only add a constraint by rebuilding the table.
+
+    So this exercises the *second* trigger, and both reasons to rebuild at once:
+    the three absent CHECKs and the five absent indexes. Because a rebuild really
+    does happen, the rows have to come through it intact -- ``judged_at``
+    included, since that is the column a rebuild is most able to lose.
+    """
+    engine = build_submission_engine(
+        """
+        CREATE TABLE submissions (
+            id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            problem_id INTEGER NOT NULL,
+            language VARCHAR(40) NOT NULL,
+            source_code TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            test_cases_passed INTEGER,
+            test_cases_total INTEGER,
+            runtime_ms INTEGER,
+            memory_mb INTEGER,
+            error_message TEXT,
+            submitted_at DATETIME NOT NULL,
+            judged_at DATETIME,
+            PRIMARY KEY (id),
+            CONSTRAINT ck_submissions_status CHECK (status IN ('queued', 'running',
+                'accepted', 'wrong_answer', 'runtime_error', 'compilation_error',
+                'time_limit_exceeded', 'memory_limit_exceeded', 'failed'))
+        );
+        """
+    )
+    assert {index["name"] for index in inspect(engine).get_indexes("submissions")} == set()
+
+    ensure_submission_schema(engine)
+    ensure_submission_schema(engine)  # idempotent
+
+    assert SUBMISSION_INDEXES <= {
+        index["name"] for index in inspect(engine).get_indexes("submissions")
+    }
+    assert SUBMISSION_CHECKS <= {
+        constraint["name"]
+        for constraint in inspect(engine).get_check_constraints("submissions")
+    }
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT id, status, test_cases_passed, submitted_at, judged_at"
+                 " FROM submissions ORDER BY id")
+        ).all() == [
+            (1, "accepted", 3, "2026-02-01 10:00:00", "2026-02-01 10:00:01"),
+            (2, "queued", None, "2026-02-02 11:00:00", None),
+        ]
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_the_rebuild_keeps_judged_at_when_the_table_has_no_constraints() -> None:
+    """A rebuild triggered by missing constraints keeps every recorded verdict.
+
+    ``judged_at`` used to be missing from the rebuild's column map, so the moment
+    the upgrader dropped and recreated the table the judging time was gone --
+    leaving the shape correct and the data silently destroyed. ``judged_at`` is
+    also the column most likely to be non-null here: the upgrade only runs on
+    databases that predate the constraints, and those are the databases holding
+    real judging history.
+    """
+    engine = build_submission_engine(
+        """
+        CREATE TABLE submissions (
+            id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            problem_id INTEGER NOT NULL,
+            language VARCHAR(40) NOT NULL,
+            source_code TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            test_cases_passed INTEGER,
+            test_cases_total INTEGER,
+            runtime_ms INTEGER,
+            memory_mb INTEGER,
+            error_message TEXT,
+            submitted_at DATETIME NOT NULL,
+            judged_at DATETIME,
+            PRIMARY KEY (id)
+        );
+        """
+    )
+
+    ensure_submission_schema(engine)
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id, status, test_cases_passed, runtime_ms, submitted_at, judged_at"
+                 " FROM submissions ORDER BY id")
+        ).all()
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+    # The judged submission keeps its judging time, every measurement, and its
+    # submission time; the queued one is left unjudged.
+    assert rows == [
+        (1, "accepted", 3, 17, "2026-02-01 10:00:00", "2026-02-01 10:00:01"),
+        (2, "queued", None, None, "2026-02-02 11:00:00", None),
+    ]
+    assert {column["name"] for column in inspect(engine).get_columns("submissions")} == set(
+        SUBMISSION_COLUMNS
+    )
+    assert SUBMISSION_CHECKS <= {
+        constraint["name"]
+        for constraint in inspect(engine).get_check_constraints("submissions")
+    }
+
+
+def test_a_pre_release_submissions_table_is_rebuilt_without_losing_data() -> None:
+    """The placeholder table rebuilds, honestly.
+
+    ``results`` and ``created_at`` are ``NOT NULL`` with no default, which is why
+    the table has to be rebuilt before a submission can be inserted at all. The
+    submission time has to come from ``created_at``, and a status outside the
+    vocabulary has to become ``failed`` rather than a verdict the judge never
+    reached.
+    """
+    engine = build_submission_engine(
+        """
+        CREATE TABLE submissions (
+            id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            problem_id INTEGER NOT NULL,
+            language VARCHAR(40) NOT NULL,
+            source_code TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            results JSON NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+            FOREIGN KEY(problem_id) REFERENCES problems (id) ON DELETE CASCADE
+        );
+        """,
+        rows="""
+        INSERT INTO submissions (id, user_id, problem_id, language, source_code, status,
+                                 results, created_at)
+            VALUES (1, 1, 1, 'python', 'def solve(): return 3', 'PASSED', '[]',
+                    '2024-05-05 08:00:00'),
+                   (2, 1, 2, 'ruby', 'puts 1', 'error', '[]', '2024-05-06 09:00:00');
+        """,
+    )
+
+    ensure_submission_schema(engine)
+    ensure_submission_schema(engine)  # idempotent
+
+    columns = {column["name"] for column in inspect(engine).get_columns("submissions")}
+    assert "results" not in columns
+    assert "created_at" not in columns
+    assert set(SUBMISSION_COLUMNS) == columns
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id, status, submitted_at, judged_at FROM submissions ORDER BY id")
+        ).all()
+        assert rows == [
+            (1, "failed", "2024-05-05 08:00:00", None),
+            (2, "failed", "2024-05-06 09:00:00", None),
+        ]
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        # The table is usable afterwards, constraints included.
+        connection.execute(
+            text(
+                "INSERT INTO submissions (user_id, problem_id, language, source_code,"
+                " status, submitted_at) VALUES (1, 1, 'python', 'x', 'accepted',"
+                " '2026-03-01 00:00:00')"
+            )
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO submissions (user_id, problem_id, language, source_code,"
+                    " status, submitted_at) VALUES (1, 1, 'python', 'x', 'maybe_passed',"
+                    " '2026-03-01 00:00:00')"
+                )
+            )
+        connection.rollback()
+
+    indexes = {index["name"] for index in inspect(engine).get_indexes("submissions")}
+    assert SUBMISSION_INDEXES <= indexes
+
+
+def test_impossible_measurements_are_dropped_rather_than_kept() -> None:
+    """A row that could not have happened is nulled, not left to assert a lie.
+
+    Passing more cases than were run, or reporting a negative duration, is what a
+    pre-vocabulary table accumulates. The counts are cleared because they are the
+    numbers the dashboard aggregates; the status is left alone because it is the
+    learner's record of what happened.
+    """
+    engine = build_submission_engine(
+        """
+        CREATE TABLE submissions (
+            id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            problem_id INTEGER NOT NULL,
+            language VARCHAR(40) NOT NULL,
+            source_code TEXT NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            test_cases_passed INTEGER,
+            test_cases_total INTEGER,
+            runtime_ms INTEGER,
+            memory_mb INTEGER,
+            error_message TEXT,
+            submitted_at DATETIME NOT NULL,
+            judged_at DATETIME,
+            PRIMARY KEY (id)
+        );
+        """,
+        rows="""
+        INSERT INTO submissions (id, user_id, problem_id, language, source_code, status,
+                                 test_cases_passed, test_cases_total, runtime_ms, submitted_at)
+            VALUES (1, 1, 1, 'python', 'a', 'accepted', 9, 4, 12, '2026-02-01 10:00:00'),
+                   (2, 1, 2, 'python', 'b', 'accepted', -1, 4, 12, '2026-02-01 10:00:00');
+        """,
+    )
+
+    ensure_submission_schema(engine)
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT id, status, test_cases_passed, test_cases_total FROM submissions"
+                 " ORDER BY id")
+        ).all()
+    assert rows == [(1, "accepted", None, 4), (2, "accepted", None, 4)]

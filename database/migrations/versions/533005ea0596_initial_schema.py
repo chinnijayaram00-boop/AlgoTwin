@@ -10,6 +10,12 @@ The baseline is deliberately non-destructive:
 * a pre-existing ``users`` table is upgraded in place. Legacy ``display_name``
   rows are carried over to ``name`` rather than dropped, so no learner data is
   lost and the unique email index is created once the column set is canonical;
+* every statement that touches ``users`` is written against the columns that
+  table actually has, not against the columns this revision would have created.
+  A database adopted from ``Base.metadata.create_all`` already declares the
+  canonical ``name`` and has no ``display_name`` at all, so a backfill that
+  named ``display_name`` unconditionally would abort the whole upgrade on
+  exactly the databases this baseline exists to adopt;
 * ``downgrade()`` is intentionally inert. This revision may adopt real user
   rows, so reversing it would mean dropping live data. Undo schema changes with
   a follow-up forward revision instead.
@@ -91,11 +97,20 @@ def _add_missing_user_columns(existing: set[str]) -> None:
             connection.execute(sa.text(ddl))
 
 
-def _backfill_user_columns() -> None:
+def _backfill_user_columns(existing: set[str]) -> None:
     connection = op.get_bind()
-    connection.execute(
-        sa.text("UPDATE users SET name = COALESCE(display_name, email, 'Learner') WHERE name IS NULL")
-    )
+    # `display_name` only exists on a table that predates the rename. A table
+    # provisioned by `create_all` already declares `name` and has no such
+    # column, so naming it here would raise "no such column" and abort the
+    # upgrade on precisely the database this revision is meant to adopt. The
+    # fallback chain is therefore built from the columns this table has: a
+    # legacy row still prefers its old display name, and a row with no old name
+    # falls back to the email it already has.
+    if "display_name" in existing:
+        name_source = "COALESCE(display_name, email, 'Learner')"
+    else:
+        name_source = "COALESCE(email, 'Learner')"
+    connection.execute(sa.text(f"UPDATE users SET name = {name_source} WHERE name IS NULL"))
     connection.execute(sa.text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
     connection.execute(
         sa.text("UPDATE users SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL")
@@ -117,7 +132,11 @@ def _create_users() -> None:
 
     existing = _existing_column_names("users")
     _add_missing_user_columns(existing)
-    _backfill_user_columns()
+    # `_add_missing_user_columns` may have added `name`, `password_hash`,
+    # `created_at`, and `updated_at`, so the set the backfill reasons about is
+    # re-read rather than reused from before the ALTERs.
+    existing = _existing_column_names("users")
+    _backfill_user_columns(existing)
 
     # SQLite cannot relax or enforce NOT NULL with ALTER TABLE, so an adopted
     # legacy table keeps a nullable `name`. The runtime schema upgrader in

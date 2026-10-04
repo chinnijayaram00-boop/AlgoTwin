@@ -26,7 +26,10 @@ provisioned by ``Base.metadata.create_all`` and safe to run twice:
 On PostgreSQL that is plain ``ALTER TABLE`` statements. SQLite cannot add a
 constraint or drop a constraint-bearing column in place, so the table is rebuilt
 once in batch mode from the canonical definition, which copies the rows across
-and leaves a table identical to the one ``create_all`` would have produced.
+and leaves a table identical to the one ``create_all`` would have produced. That
+rebuild is *lossless* for every column the database already has, including the
+ones a later revision owns: ``judged_at`` is copied when it is present and left
+for ``e_judged_submissions`` to add when it is not.
 
 The migration and the start-up upgrader in ``backend.app.db.schema`` perform the
 same steps against the same constants, so an ``AUTO_CREATE_TABLES=true``
@@ -43,7 +46,7 @@ Revises: b_progress_learner_tracking
 Create Date: 2026-09-26 09:15:00.000000
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import sqlalchemy as sa
 from alembic import context, op
@@ -102,34 +105,108 @@ INDEXES: tuple[tuple[str, str], ...] = (
 )
 
 
+#: The canonical column set, as ``(name, type factory, nullable)`` in the order
+#: ``database.models.submission.Submission`` declares them. The type is a factory
+#: rather than an instance because a ``Column`` is parented to the table it is
+#: declared on, so a second table has to be described with second objects.
+CANONICAL_COLUMNS: tuple[tuple[str, Callable[[], sa.types.TypeEngine], bool], ...] = (
+    ("id", lambda: sa.Integer(), False),
+    ("user_id", lambda: sa.Integer(), False),
+    ("problem_id", lambda: sa.Integer(), False),
+    ("language", lambda: sa.String(length=40), False),
+    ("source_code", lambda: sa.Text(), False),
+    ("status", lambda: sa.String(length=30), False),
+    ("test_cases_passed", lambda: sa.Integer(), True),
+    ("test_cases_total", lambda: sa.Integer(), True),
+    ("runtime_ms", lambda: sa.Integer(), True),
+    ("memory_mb", lambda: sa.Integer(), True),
+    ("error_message", lambda: sa.Text(), True),
+    ("submitted_at", lambda: sa.DateTime(timezone=True), False),
+    # Added by ``e_judged_submissions``. Nullable and undefaulted on purpose: a
+    # submission that was stored but never judged has no judging time, and
+    # inventing one would assert a verdict that never happened.
+    ("judged_at", lambda: sa.DateTime(timezone=True), True),
+)
+
+
+def _canonical_columns(names: set[str] | None = None) -> list[sa.Column]:
+    """Fresh canonical ``Column`` objects, optionally narrowed to ``names``.
+
+    A fresh object per call is required rather than convenient: SQLAlchemy
+    parents a ``Column`` to the first table it is declared on and refuses to
+    declare it on a second (``Column object 'id' already assigned to Table
+    'submissions'``), which is exactly what happens when the same definition
+    describes both the create-from-nothing table and the rebuild copy source.
+    """
+    specs = CANONICAL_COLUMNS if names is None else [spec for spec in CANONICAL_COLUMNS if spec[0] in names]
+    return [sa.Column(name, factory(), nullable=nullable) for name, factory, nullable in specs]
+
+
+def _canonical_constraints() -> list[sa.Constraint]:
+    """Fresh constraints for the canonical table.
+
+    Like a column, a constraint is parented to its table, so these are built per
+    call for the same reason :func:`_canonical_columns` does it. Every column
+    they name -- ``id``, ``user_id``, ``problem_id``, and the columns the CHECK
+    expressions read -- is present in every version of this table, and by the
+    time either table is built :func:`_add_missing_columns` has added the rest,
+    so all of them apply unconditionally.
+    """
+    return [
+        sa.ForeignKeyConstraint(["problem_id"], ["problems.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        *[sa.CheckConstraint(expression, name=name) for name, expression in CHECK_CONSTRAINTS],
+    ]
+
+
 def _canonical_table() -> sa.Table:
     """The exact table this revision is converging on.
 
     This is the shape ``database.models.submission.Submission`` declares, written
     out here because a migration has to describe the target independently of the
-    model it is migrating. The SQLite batch rebuild below builds the new table
-    from it, which is what guarantees a migrated database and a provisioned one
-    are the same table rather than merely similar.
+    model it is migrating. :func:`_create_submissions_fresh` creates a database
+    with no ``submissions`` table straight from it, which is what makes a fresh
+    ``alembic upgrade`` land on the same table ``create_all`` would have built.
     """
     return sa.Table(
         "submissions",
         sa.MetaData(),
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("problem_id", sa.Integer(), nullable=False),
-        sa.Column("language", sa.String(length=40), nullable=False),
-        sa.Column("source_code", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(length=30), nullable=False),
-        sa.Column("test_cases_passed", sa.Integer(), nullable=True),
-        sa.Column("test_cases_total", sa.Integer(), nullable=True),
-        sa.Column("runtime_ms", sa.Integer(), nullable=True),
-        sa.Column("memory_mb", sa.Integer(), nullable=True),
-        sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["problem_id"], ["problems.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        *[sa.CheckConstraint(expression, name=name) for name, expression in CHECK_CONSTRAINTS],
+        *_canonical_columns(),
+        *_canonical_constraints(),
+    )
+
+
+def _copy_source_table(live_columns: set[str]) -> sa.Table:
+    """The table the SQLite rebuild copies into: canonical, limited to what exists.
+
+    Alembic's batch rebuild copies every column ``copy_from`` names by selecting
+    that same column from the live table, and it does not intersect the two
+    itself. A fixed copy source therefore fails in one of two ways, and this
+    revision hit both:
+
+    * naming a column the table does not have aborts the migration -- the
+      ``INSERT INTO _alembic_tmp_submissions ... SELECT submissions.judged_at``
+      cannot resolve a column the live table was never given, because
+      ``e_judged_submissions`` adds it *after* this revision runs;
+    * omitting a column the table does have silently deletes it. That is how
+      ``judged_at`` was lost: a database provisioned by
+      ``Base.metadata.create_all`` already carried the column and every recorded
+      judging timestamp, the rebuild left it out, and ``e`` afterwards restored
+      the column as empty. The shape came out right and the data was gone, with
+      nothing reporting it.
+
+    So the source is derived from the table actually in front of us: the
+    canonical shape, keeping exactly the columns this database has. A column a
+    later revision owns is preserved when it is already there and left for that
+    revision to add when it is not, which is the one behaviour that is correct in
+    both cases rather than one that trades a crash for a data loss.
+    """
+    return sa.Table(
+        "submissions",
+        sa.MetaData(),
+        *_canonical_columns(live_columns),
+        *_canonical_constraints(),
     )
 
 
@@ -229,16 +306,21 @@ def _rebuild_sqlite_submissions() -> None:
     """Rebuild ``submissions`` from the canonical definition, rows intact.
 
     ``recreate="always"`` is what forces the rebuild even though no column
-    operation is queued: the point is the target schema, not a column edit. Alembic
-    copies across the columns the two tables have in common, which is exactly how
-    the retired placeholder columns are dropped -- their values are already
-    carried into ``submitted_at`` by the backfill above.
+    operation is queued: the point is the target schema, not a column edit. The
+    copy source is derived from the live table by :func:`_copy_source_table`, so
+    a column this revision does not own -- ``judged_at``, which
+    ``e_judged_submissions`` adds next -- is copied across when the database
+    already has it and is left for that revision to add when it does not.
+
+    The retired placeholder columns are dropped by the rebuild, because Alembic
+    copies across only the columns the two tables have in common, and their
+    values are already carried into ``submitted_at`` by the backfill above.
 
     Indexes are not carried over by a batch rebuild, so :func:`_ensure_indexes`
     recreates them immediately afterwards.
     """
     with op.batch_alter_table(
-        "submissions", copy_from=_canonical_table(), recreate="always"
+        "submissions", copy_from=_copy_source_table(_existing_column_names()), recreate="always"
     ):
         pass
 
