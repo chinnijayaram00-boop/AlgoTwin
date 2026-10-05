@@ -36,6 +36,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from backend.app.judge.languages import LANGUAGE_IDS
 from database.models.base import Base
 from database.models.progress import as_utc, utc_now
 
@@ -79,7 +80,13 @@ INITIAL_SUBMISSION_STATUS: str = SubmissionStatus.QUEUED.value
 #: Languages the workspace offers and the seeded problems ship starter code for.
 #: A submission in any other language could not be run by a future runner either,
 #: so the API refuses it rather than storing something unusable.
-SUPPORTED_LANGUAGES: tuple[str, ...] = ("javascript", "python")
+#:
+#: Built from the language registry rather than restated here. This tuple used to
+#: be a literal of its own, which is precisely how four catalog entries came to
+#: advertise a Java tab the API would reject with a 422: two lists of the same
+#: fact, and nothing that could not be checked connecting them. The registry is
+#: the one place that knows what the platform can run, so this now reads it.
+SUPPORTED_LANGUAGES: tuple[str, ...] = LANGUAGE_IDS
 
 # Payload guards. A submission is the largest thing a learner can send, so the
 # ceiling is explicit: an editor buffer is a few kilobytes, and 64 KB leaves room

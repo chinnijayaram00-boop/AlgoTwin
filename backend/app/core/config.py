@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     execution_enabled: bool = True
     execution_python: bool = True
     execution_javascript: bool = True
+    # Java is switched separately for a sharper reason than the other two: it
+    # needs a JDK, not just a runtime. A host with a JRE answers `available`
+    # false for Java on its own, but a host that has a JDK and no capacity to
+    # spare for a JVM's start-up per case wants the tab gone without uninstalling
+    # anything.
+    execution_java: bool = True
     # The total wall-clock one judge run may spend across all of its cases. Lower
     # than the 30s default for a single-process host; a deployment that wants
     # longer synchronous runs should move judging onto the background worker

@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,9 +53,12 @@ class RunOutcome:
 
     ``kind`` is the raw observation, deliberately not a verdict:
     ``ok``, ``nonzero_exit``, ``time_limit``, ``output_limit``,
-    ``killed_by_signal`` or ``internal_error``. Turning an observation into a
-    verdict is :mod:`backend.app.judge.judge`'s job, because only the judge knows
-    the expected output.
+    ``killed_by_signal``, ``compile_error`` or ``internal_error``. Turning an
+    observation into a verdict is :mod:`backend.app.judge.judge`'s job, because
+    only the judge knows the expected output. ``compile_error`` is the one kind
+    that describes building a program rather than running one; it is what a
+    compiled language's build step reports, and the judge maps it to the same
+    verdict an interpreter's refusal of the source already produced.
     """
 
     kind: str
@@ -92,22 +97,36 @@ def _build_job(
     source_code: str,
     stdin_text: str,
     limits: ExecutionLimits,
+    *,
+    mode: str,
+    argv_prefix: list[str],
+    append_entry: bool,
 ) -> dict[str, Any]:
-    """Describe one case to the worker.
+    """Describe one job to the worker.
 
     Note what is absent: the expected output, and every other case. The worker
     cannot compare, and cannot be told the answer, because it is never given it.
+
+    Both compile budgets travel in every job, whichever mode it is, so the worker
+    reads one shape and never has to know which limits apply. ``append_entry`` is
+    the other field that keeps the worker ignorant of languages: it says whether
+    the source path belongs at the end of this command line, which is a question
+    about the language that the language registry has already answered.
     """
     return {
         "language": language.id,
+        "mode": mode,
         "source": source_code,
         "stdin": stdin_text,
         "entry_name": language.entry_name(),
-        "argv_prefix": language.argv_prefix(),
+        "argv_prefix": argv_prefix,
+        "append_entry": append_entry,
         "wall_clock_ms": limits.wall_clock_ms,
         "memory_mb": limits.memory_mb,
         "cpu_seconds": limits.cpu_seconds,
         "max_output_bytes": limits.max_output_bytes,
+        "compile_wall_clock_ms": limits.compile_wall_clock_ms,
+        "compile_max_output_bytes": limits.compile_max_output_bytes,
         "enforce_address_space": language.enforce_address_space,
     }
 
@@ -194,8 +213,14 @@ def execute(
     source_code: str,
     stdin_text: str,
     limits: ExecutionLimits,
+    *,
+    classpath: str | None = None,
 ) -> RunOutcome:
     """Run one program against one input, out of process, and report what happened.
+
+    ``classpath`` is the directory a previous :func:`compile_source` filled. It is
+    ignored by an interpreted language, and required by a compiled one, which has
+    nothing to start from without it.
 
     Raises :class:`LanguageUnavailableError` when the machine has no interpreter
     for the language, because that is a deployment problem the caller should turn
@@ -204,7 +229,86 @@ def execute(
     if not language.available:
         raise LanguageUnavailableError(language.id)
 
-    job = _build_job(language, source_code, stdin_text, limits)
+    job = _build_job(
+        language,
+        source_code,
+        stdin_text,
+        limits,
+        mode="run",
+        argv_prefix=language.run_command(classpath),
+        append_entry=language.appends_entry_path,
+    )
+    return _run_worker(job, parent_budget_ms=limits.wall_clock_ms)
+
+
+def compile_source(
+    language: LanguageSpec,
+    source_code: str,
+    limits: ExecutionLimits,
+    output_dir: str,
+) -> RunOutcome:
+    """Build one submission into ``output_dir``.
+
+    Separate from :func:`execute` because the cost is different in kind, not just
+    in size: this runs once per submission and its clock is
+    :attr:`~backend.app.judge.limits.ExecutionLimits.compile_wall_clock_ms`, so a
+    JVM's start-up is never charged to the per-case time limit the program is
+    judged against. ``output_dir`` is created and removed by the caller, which is
+    what lets one build serve every case of a submission.
+    """
+    if not language.available or not language.needs_compile:
+        raise LanguageUnavailableError(language.id)
+
+    job = _build_job(
+        language,
+        source_code,
+        "",
+        limits,
+        mode="compile",
+        argv_prefix=language.compile_command(output_dir),
+        append_entry=True,
+    )
+    return _run_worker(job, parent_budget_ms=limits.compile_wall_clock_ms)
+
+
+def execute_once(
+    language: LanguageSpec,
+    source_code: str,
+    stdin_text: str,
+    limits: ExecutionLimits,
+) -> RunOutcome:
+    """Run one program once, compiling it first if its language needs that.
+
+    The single-run paths -- the ad-hoc "try my own input" and the run-only
+    endpoint -- have exactly one execution to pay for, so the build is created and
+    discarded around it here. The judge does not use this: it has many cases per
+    submission and must compile once for all of them.
+    """
+    if not language.available:
+        raise LanguageUnavailableError(language.id)
+    if not language.needs_compile:
+        return execute(language, source_code, stdin_text, limits)
+
+    build_dir = tempfile.mkdtemp(prefix="algotwin-build-")
+    try:
+        outcome = compile_source(language, source_code, limits, build_dir)
+        if outcome.kind != "ok":
+            return outcome
+        return execute(language, source_code, stdin_text, limits, classpath=build_dir)
+    finally:
+        shutil.rmtree(build_dir, ignore_errors=True)
+
+
+def _run_worker(job: dict[str, Any], *, parent_budget_ms: int) -> RunOutcome:
+    """Hand one job to a fresh worker and read its result document back.
+
+    ``parent_budget_ms`` is the clock this process is given to kill the *worker*,
+    and it is passed separately from the job's own limit because the two differ
+    for a compile: the worker is told to stop a long compilation at the compile
+    clock, while this process waits slightly longer than that before concluding
+    the worker itself is wedged.
+    """
+    process: subprocess.Popen
     try:
         process = subprocess.Popen(
             _worker_argv(),
@@ -235,7 +339,7 @@ def execute(
         _terminate(process)
         raise ExecutionError(f"Could not hand the case to the judge worker: {error}") from error
 
-    budget = (limits.wall_clock_ms + WORKER_GRACE_MS) / 1000
+    budget = (parent_budget_ms + WORKER_GRACE_MS) / 1000
     try:
         process.wait(timeout=budget)
     except subprocess.TimeoutExpired:
@@ -316,5 +420,7 @@ __all__ = [
     "ExecutionError",
     "RunOutcome",
     "WORKER_PATH",
+    "compile_source",
     "execute",
+    "execute_once",
 ]

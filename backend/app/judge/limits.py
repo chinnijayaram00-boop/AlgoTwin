@@ -47,6 +47,25 @@ MAX_JUDGE_WALL_CLOCK_MS = 30_000
 #: one request ship a payload the judge would have to hold in memory.
 MAX_STDIN_BYTES = 256 * 1024
 
+#: The wall clock one compilation may take. Separate from the per-case clock
+#: because compiling and running are different work with wildly different costs:
+#: `javac` is itself a JVM, so a cold compile is hundreds of milliseconds of
+#: start-up before it looks at a line of source. Charging that to the learner's
+#: time limit would make every Java submission time out on the machine that is
+#: otherwise perfectly able to run it. It is charged to the request budget
+#: instead, so a slow compile still cannot hold a request open indefinitely.
+DEFAULT_COMPILE_WALL_CLOCK_MS = 20_000
+
+#: The ceiling on the compile clock. A submission that has not compiled in a
+#: minute is not going to, and the parent must not wait longer than this before it
+#: stops the worker.
+MAX_COMPILE_WALL_CLOCK_MS = 60_000
+
+#: The most bytes a compiler's diagnostics may produce. A real compile error is a
+#: few dozen lines; the cap exists so a pathological source cannot make the
+#: compile step's output the largest thing the request held.
+MAX_COMPILE_OUTPUT_BYTES = 64 * 1024
+
 
 @dataclass(frozen=True)
 class ExecutionLimits:
@@ -65,6 +84,12 @@ class ExecutionLimits:
     #: if it finished inside this, so a run that hit it is reported as truncated
     #: rather than as a pass.
     total_budget_ms: int = MAX_JUDGE_WALL_CLOCK_MS
+    #: The clock for the one compilation a submission needs, when its language is
+    #: a compiled one. An interpreted language never reads this, so it costs an
+    #: interpreted submission nothing.
+    compile_wall_clock_ms: int = DEFAULT_COMPILE_WALL_CLOCK_MS
+    #: The cap on compiler diagnostics, for the same reason.
+    compile_max_output_bytes: int = MAX_COMPILE_OUTPUT_BYTES
 
     @classmethod
     def resolve(
@@ -102,6 +127,13 @@ class ExecutionLimits:
             cpu_seconds=wall_clock_ms // 1000 + 1,
             max_output_bytes=MAX_OUTPUT_BYTES,
             total_budget_ms=total_budget_ms,
+            compile_wall_clock_ms=_clamp_int(
+                DEFAULT_COMPILE_WALL_CLOCK_MS,
+                default=DEFAULT_COMPILE_WALL_CLOCK_MS,
+                low=MIN_WALL_CLOCK_MS,
+                high=MAX_COMPILE_WALL_CLOCK_MS,
+            ),
+            compile_max_output_bytes=MAX_COMPILE_OUTPUT_BYTES,
         )
 
 
@@ -122,7 +154,10 @@ def _clamp_int(value: object, *, default: int, low: int, high: int) -> int:
 
 
 __all__ = [
+    "DEFAULT_COMPILE_WALL_CLOCK_MS",
     "MAX_CASES_PER_RUN",
+    "MAX_COMPILE_OUTPUT_BYTES",
+    "MAX_COMPILE_WALL_CLOCK_MS",
     "MAX_JUDGE_WALL_CLOCK_MS",
     "MAX_OUTPUT_BYTES",
     "MAX_STDIN_BYTES",

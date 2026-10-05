@@ -36,7 +36,7 @@ from backend.app.judge.limits import MAX_STDIN_BYTES
 #: The languages a run request may name. Published in the OpenAPI schema so the
 #: editor's tabs and the accepted values are the same list, and built from the
 #: language registry so a language can never be added to one and not the other.
-RunnableLanguage = Literal["javascript", "python"]
+RunnableLanguage = Literal[*LANGUAGE_IDS]
 
 #: The verdict vocabulary, mirrored as a `Literal` for the same reason the
 #: submission schemas mirror it. `backend/tests/test_judge.py` asserts this stays

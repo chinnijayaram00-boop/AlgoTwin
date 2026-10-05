@@ -37,7 +37,11 @@ SubmissionStatusInput = Literal[
     "memory_limit_exceeded",
     "failed",
 ]
-SupportedLanguage = Literal["javascript", "python"]
+#: Built from the model's own vocabulary rather than restated, so the published
+#: enum cannot name a language the submission table does not accept.
+#: `backend/tests/test_submissions.py` asserts this stays in step with the model
+#: constants, which is what stops the two drifting.
+SupportedLanguage = Literal[*SUPPORTED_LANGUAGES]
 
 
 class SubmissionCreateRequest(BaseModel):

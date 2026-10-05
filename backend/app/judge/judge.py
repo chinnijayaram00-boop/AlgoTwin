@@ -16,7 +16,9 @@ the statuses start being written back, and that layer is exactly where a
 
 from __future__ import annotations
 
+import shutil
 import signal
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
@@ -28,7 +30,7 @@ from backend.app.judge.limits import (
     MAX_STDIN_BYTES,
     ExecutionLimits,
 )
-from backend.app.judge.runner import RunOutcome, execute
+from backend.app.judge.runner import RunOutcome, compile_source, execute, execute_once
 from backend.app.services.output_compare import outputs_match
 
 #: How much of a failing program's own stderr is echoed back. Enough for a
@@ -174,6 +176,20 @@ def verdict_for_observation(outcome: RunOutcome) -> tuple[SubmissionStatus, str 
     positively identified is ``failed`` with the program's own output attached,
     never ``accepted``.
     """
+    if outcome.kind == "compile_error":
+        # The build step failed, so there was never a program to run. This is the
+        # verdict an interpreted language already produces when its interpreter
+        # refuses the source (see :func:`_looks_like_compile_error`), reached here
+        # by an actual compiler instead of by a heuristic over stderr. The
+        # compiler's own diagnostics are the useful part: file, line, and what it
+        # expected. They describe the submitted source and nothing else, so no
+        # hidden case is disclosed by showing them.
+        detail = clip_output(outcome.stderr).strip() or clip_output(outcome.stdout).strip()
+        prefix = (outcome.error or "").strip()
+        message = f"{prefix}\n{detail}" if prefix and detail else (prefix or detail)
+        return SubmissionStatus.COMPILATION_ERROR, clip_error(
+            message or "The source could not be compiled."
+        )
     if outcome.kind == "ok":
         return SubmissionStatus.ACCEPTED, None
     if outcome.kind == "time_limit":
@@ -277,62 +293,95 @@ def judge(
     verdict = SubmissionStatus.ACCEPTED
     error_message: str | None = None
 
-    for index, case in enumerate(parsed):
-        if total_runtime_ms >= limits.total_budget_ms:
-            # Out of budget. This is a failure, not a pass, and it is reported as
-            # truncated so no caller can mistake a partial run for a full one.
-            verdict = SubmissionStatus.TIME_LIMIT_EXCEEDED
-            error_message = clip_error(
-                f"The judge stopped after {index} of {len(parsed)} cases to stay inside "
-                "its own time budget."
+    # A compiled language is built once here, before any case runs, and the
+    # artifact is reused by every case below. Compiling inside the loop would
+    # charge the learner a JVM start-up per test case, which for a two-second
+    # per-case limit is most of the budget spent before the program begins --
+    # and would make a submission's cost scale with how many cases the problem
+    # happens to have.
+    build_dir: str | None = None
+    try:
+        if language.needs_compile:
+            build_dir = tempfile.mkdtemp(prefix="algotwin-build-")
+            build = compile_source(language, source_code, limits, build_dir)
+            if build.kind != "ok":
+                # Nothing ran, so there is no case result to report and nothing
+                # was verified. The run is truncated so no caller can read a
+                # failed build as a partial pass.
+                build_verdict, build_error = verdict_for_observation(build)
+                return JudgeReport(
+                    verdict=build_verdict,
+                    cases_run=0,
+                    cases_passed=0,
+                    cases_total=len(parsed),
+                    results=[],
+                    error_message=clip_error(build_error),
+                    total_runtime_ms=0,
+                    peak_memory_mb=build.peak_memory_mb,
+                    truncated=True,
+                )
+
+        for index, case in enumerate(parsed):
+            if total_runtime_ms >= limits.total_budget_ms:
+                # Out of budget. This is a failure, not a pass, and it is reported
+                # as truncated so no caller can mistake a partial run for a full one.
+                verdict = SubmissionStatus.TIME_LIMIT_EXCEEDED
+                error_message = clip_error(
+                    f"The judge stopped after {index} of {len(parsed)} cases to stay inside "
+                    "its own time budget."
+                )
+                break
+
+            outcome = execute(language, source_code, case.input, limits, classpath=build_dir)
+            case_verdict, case_error = verdict_for_observation(outcome)
+            passed = case_verdict is SubmissionStatus.ACCEPTED and outputs_match(
+                outcome.stdout, case.expected_output
             )
-            break
+            if not passed and case_verdict is SubmissionStatus.ACCEPTED:
+                # It ran cleanly and still did not match. That is a wrong answer, not
+                # an error, and the learner should be told so.
+                case_verdict = SubmissionStatus.WRONG_ANSWER
+                case_error = "The program ran successfully but printed the wrong answer."
 
-        outcome = execute(language, source_code, case.input, limits)
-        case_verdict, case_error = verdict_for_observation(outcome)
-        passed = case_verdict is SubmissionStatus.ACCEPTED and outputs_match(
-            outcome.stdout, case.expected_output
-        )
-        if not passed and case_verdict is SubmissionStatus.ACCEPTED:
-            # It ran cleanly and still did not match. That is a wrong answer, not
-            # an error, and the learner should be told so.
-            case_verdict = SubmissionStatus.WRONG_ANSWER
-            case_error = "The program ran successfully but printed the wrong answer."
-
-        results.append(
-            CaseResult(
-                index=index,
-                is_hidden=case.is_hidden,
-                passed=passed,
-                actual_output=clip_output(outcome.stdout),
-                expected_output=case.expected_output,
-                case_input=case.input,
-                verdict=case_verdict,
-                error_message=clip_error(case_error),
-                duration_ms=outcome.duration_ms,
-                peak_memory_mb=outcome.peak_memory_mb,
+            results.append(
+                CaseResult(
+                    index=index,
+                    is_hidden=case.is_hidden,
+                    passed=passed,
+                    actual_output=clip_output(outcome.stdout),
+                    expected_output=case.expected_output,
+                    case_input=case.input,
+                    verdict=case_verdict,
+                    error_message=clip_error(case_error),
+                    duration_ms=outcome.duration_ms,
+                    peak_memory_mb=outcome.peak_memory_mb,
+                )
             )
+            total_runtime_ms += outcome.duration_ms
+            peak_memory_mb = _higher(peak_memory_mb, outcome.peak_memory_mb)
+
+            if not passed:
+                verdict = case_verdict
+                error_message = case_error
+                break
+
+        cases_passed = sum(1 for result in results if result.passed)
+        return JudgeReport(
+            verdict=verdict,
+            cases_run=len(results),
+            cases_passed=cases_passed,
+            cases_total=len(parsed),
+            results=results,
+            error_message=clip_error(error_message),
+            total_runtime_ms=total_runtime_ms,
+            peak_memory_mb=peak_memory_mb,
+            truncated=len(results) < len(parsed),
         )
-        total_runtime_ms += outcome.duration_ms
-        peak_memory_mb = _higher(peak_memory_mb, outcome.peak_memory_mb)
-
-        if not passed:
-            verdict = case_verdict
-            error_message = case_error
-            break
-
-    cases_passed = sum(1 for result in results if result.passed)
-    return JudgeReport(
-        verdict=verdict,
-        cases_run=len(results),
-        cases_passed=cases_passed,
-        cases_total=len(parsed),
-        results=results,
-        error_message=clip_error(error_message),
-        total_runtime_ms=total_runtime_ms,
-        peak_memory_mb=peak_memory_mb,
-        truncated=len(results) < len(parsed),
-    )
+    finally:
+        # The compiled classes are the platform's build output, not the learner's
+        # source, and they are the only thing here that outlived a single worker.
+        if build_dir is not None:
+            shutil.rmtree(build_dir, ignore_errors=True)
 
 
 def run_uncounted(
@@ -349,7 +398,9 @@ def run_uncounted(
     """
     if len(stdin_text.encode("utf-8")) > MAX_STDIN_BYTES:
         raise NoTestCasesError(_STDIN_TOO_LARGE)
-    return execute(language, source_code, stdin_text, limits)
+    # One execution, so the build is made and discarded around it. The multi-case
+    # path in :func:`judge` is the one that must not do this per case.
+    return execute_once(language, source_code, stdin_text, limits)
 
 
 def _higher(current: float | None, candidate: float | None) -> float | None:

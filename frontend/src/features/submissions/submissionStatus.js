@@ -29,7 +29,7 @@ export const SUBMISSION_STATUSES = [
   "failed",
 ];
 
-export const SUPPORTED_LANGUAGES = ["javascript", "python"];
+export const SUPPORTED_LANGUAGES = ["javascript", "python", "java"];
 
 /**
  * The one sentence that has to appear wherever a submission is shown, so the

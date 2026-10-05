@@ -34,6 +34,8 @@ from database.models.ai_insight import (
 from database.models.submission import MAX_SOURCE_CODE_LENGTH
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.app.judge.languages import LANGUAGE_IDS
+
 # Mirrors `backend.app.ai.provider.AI_INSIGHT_KINDS`, which mirrors
 # `database.models.ai_insight.AIInsightKind`. Three lists of the same three values
 # is one list too many, but they cannot be imported from one another: the provider
@@ -113,7 +115,7 @@ class AIComplexityRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    language: Literal["javascript", "python"] = Field(
+    language: Literal[*LANGUAGE_IDS] = Field(
         description="The language the source is written in. Not inferred from the source."
     )
     source_code: str = Field(

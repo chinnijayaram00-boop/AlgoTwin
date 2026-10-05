@@ -38,7 +38,7 @@ from backend.app.judge.languages import (
     get_language,
 )
 from backend.app.judge.limits import ExecutionLimits
-from backend.app.judge.runner import ExecutionError, RunOutcome, execute
+from backend.app.judge.runner import ExecutionError, RunOutcome, execute_once
 
 #: The execution observation, under the name this module has always exported it
 #: as. It is the runner's type rather than a copy of it, so there is exactly one
@@ -93,6 +93,11 @@ class CodeExecutionService:
     def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Run ``request.source_code`` on ``request.stdin``.
 
+        A language that has to be built before it can run is built here, once,
+        around this single execution. Compilation is the runner's business rather
+        than this module's, so that the ad-hoc path and the judged path cannot
+        disagree about when a build happens.
+
         Raises :class:`LanguageUnavailableError` for a language this machine
         cannot run, so a caller can answer 503 for that rather than reporting a
         failure against the learner's code.
@@ -103,7 +108,7 @@ class CodeExecutionService:
                 f"{request.language!r} is not a language the platform can run."
             )
         limits = request.limits or ExecutionLimits.resolve(time_limit_ms=None, memory_limit_mb=None)
-        return execute(language, request.source_code, request.stdin, limits)
+        return execute_once(language, request.source_code, request.stdin, limits)
 
 
 _execution_service = CodeExecutionService()

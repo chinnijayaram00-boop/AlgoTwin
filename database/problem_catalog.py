@@ -32,8 +32,11 @@ from sqlalchemy.orm import Session
 
 from database.models import Problem
 from database.problem_defs.arrays import ARRAYS_PROBLEMS
+from database.problem_defs.graphs import GRAPHS_PROBLEMS
+from database.problem_defs.linked_lists import LINKED_LISTS_PROBLEMS
 from database.problem_defs.searching_and_dp import SEARCHING_AND_DP_PROBLEMS
 from database.problem_defs.strings_and_stacks import STRINGS_AND_STACKS_PROBLEMS
+from database.problem_defs.trees import TREES_PROBLEMS
 from database.problem_spec import CatalogError, validate_definition, visible_cases
 
 #: Every catalog definition, in the order they are seeded. The order is stable so
@@ -41,8 +44,11 @@ from database.problem_spec import CatalogError, validate_definition, visible_cas
 #: or a support conversation reproducible.
 CATALOG: list[dict[str, Any]] = [
     *ARRAYS_PROBLEMS,
+    *GRAPHS_PROBLEMS,
+    *LINKED_LISTS_PROBLEMS,
     *SEARCHING_AND_DP_PROBLEMS,
     *STRINGS_AND_STACKS_PROBLEMS,
+    *TREES_PROBLEMS,
 ]
 
 #: The columns a definition owns. Everything else on a problem row -- its id, when

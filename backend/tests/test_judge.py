@@ -26,8 +26,10 @@ deliberately use a short limit so the suite stays fast.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -54,11 +56,14 @@ from backend.app.judge.judge import (
     run_uncounted,
 )
 from backend.app.judge.languages import (
+    JAVA,
     JAVASCRIPT,
     LANGUAGE_IDS,
     PYTHON,
     REGISTRY,
+    LanguageUnavailableError,
     available_languages,
+    get_language,
 )
 from backend.app.judge.limits import (
     MAX_CASES_PER_RUN,
@@ -277,8 +282,12 @@ def test_a_duplicate_slug_is_refused() -> None:
 # ============================================== the catalog's expected outputs
 
 
-@pytest.mark.parametrize("definition", CATALOG, ids=lambda d: d["slug"])
-def test_every_reference_solution_passes_every_case(definition) -> None:
+@pytest.mark.parametrize(
+    ("definition", "language_id"),
+    [(item, language) for item in CATALOG for language in item["supported_languages"]],
+    ids=[f"{item['slug']}-{language}" for item in CATALOG for language in item["supported_languages"]],
+)
+def test_every_reference_solution_passes_every_case(definition, language_id) -> None:
     """Two independent implementations must agree on every expected output.
 
     The expected outputs are derived from an oracle at import time rather than
@@ -287,19 +296,28 @@ def test_every_reference_solution_passes_every_case(definition) -> None:
     every advertised language against every case, and requires all of them to
     agree with the oracle. It is the slowest test in the suite and the one that
     makes the other test data trustworthy.
+
+    Parametrised by language as well as by problem, and that is the whole point of
+    the rewrite. This test used to be parametrised by problem alone and hardcoded
+    ``PYTHON``, while its own docstring claimed it covered every advertised
+    language -- so all twelve JavaScript reference solutions were checked only for
+    being present and non-empty, and never once executed. A reference solution that
+    did not compile, or printed the wrong thing, would have been published
+    regardless. Anything the catalog advertises from here on is executed.
     """
-    if not PYTHON.available:
-        pytest.skip("no Python interpreter to run the reference solution with")
+    spec = get_language(language_id)
+    if spec is None:
+        pytest.skip(f"{language_id} cannot be run on this machine")
 
     report = judge(
-        language=PYTHON,
-        source_code=definition["reference_solutions"]["python"],
+        language=spec,
+        source_code=definition["reference_solutions"][language_id],
         cases=definition["test_cases"],
         limits=ExecutionLimits.resolve(3_000, 256),
     )
     failures = [result for result in report.results if not result.passed]
     assert not failures, (
-        f"{definition['slug']}: the reference solution failed "
+        f"{definition['slug']}/{language_id}: the reference solution failed "
         f"{[(r.index, r.verdict.value) for r in failures]}"
     )
     assert report.verdict is SubmissionStatus.ACCEPTED
@@ -406,9 +424,35 @@ print(f"found {len(hits)} files under {os.getcwd()}")
     assert str(Path(REPO_ROOT)) not in output
 
 
+def _job_for(language, *, mode: str, source: str = "print(1)", stdin_text: str = ""):
+    """The job the parent hands a worker, built the way the judge builds it.
+
+    The tests below assert on the *shape* of that job rather than on a run's
+    result, because the shape is the security boundary: it is the only thing the
+    worker is told, and a field added here is a field a submitted program could
+    eventually be told. Building it through the same call the judge uses keeps
+    these assertions honest when the job gains fields.
+    """
+    if mode == "run":
+        argv_prefix = language.run_command("build-dir")
+        append_entry = language.appends_entry_path
+    else:
+        argv_prefix = language.compile_command("build-dir")
+        append_entry = True
+    return runner._build_job(
+        language,
+        source,
+        stdin_text,
+        FAST,
+        mode=mode,
+        argv_prefix=argv_prefix,
+        append_entry=append_entry,
+    )
+
+
 def test_the_worker_is_never_given_an_expected_output() -> None:
     """Structural proof of the property above: the job cannot carry an answer."""
-    job = runner._build_job(PYTHON, "print(1)", "1 2 3", FAST)
+    job = _job_for(PYTHON, mode="run", source="print(1)", stdin_text="1 2 3")
 
     assert "expected_output" not in job
     assert "cases" not in job
@@ -422,13 +466,19 @@ def test_the_job_carries_every_limit_the_worker_enforces() -> None:
     The CPU allowance in particular is a POSIX-only backstop, so a value that
     stopped being passed would go unnoticed until a program spun forever on a
     platform where nothing else stopped it.
+
+    The compile budget is asserted here too, and for the same reason: it is
+    enforced by the worker, so a job that omitted it would let a compiler run
+    unbounded inside a request that believed it was capped.
     """
-    job = runner._build_job(PYTHON, "print(1)", "", FAST)
+    job = _job_for(PYTHON, mode="run")
 
     assert job["wall_clock_ms"] == FAST.wall_clock_ms
     assert job["memory_mb"] == FAST.memory_mb
     assert job["cpu_seconds"] == FAST.cpu_seconds
     assert job["max_output_bytes"] == FAST.max_output_bytes
+    assert job["compile_wall_clock_ms"] == FAST.compile_wall_clock_ms
+    assert job["compile_max_output_bytes"] == FAST.compile_max_output_bytes
 
 
 def test_a_hanging_program_is_killed_and_reported_as_a_timeout(client: TestClient) -> None:
@@ -1355,7 +1405,31 @@ def test_the_catalog_languages_are_the_registry_languages() -> None:
     """One registry, so a language cannot be added to the judge and not the catalog."""
     assert set(LANGUAGE_IDS) == set(REGISTRY_IDS := {spec.id for spec in REGISTRY})
     assert set(LANGUAGE_IDS) == set(KNOWN_LANGUAGES)
-    assert REGISTRY_IDS == {"python", "javascript"}
+    # Java is expected here and not merely permitted: a compiled language that
+    # compiles and runs is the point of the phase that added it, and a registry
+    # that quietly lost it would still pass every other assertion in this file.
+    assert REGISTRY_IDS == {"python", "javascript", "java"}
+
+
+def test_a_compiled_language_is_a_compiler_and_a_runtime() -> None:
+    """Java is only offered when both binaries are really present.
+
+    A JRE-only host has `java` and no `javac`, and offering a Java tab there would
+    promise a submission the machine cannot build. This is asserted against the
+    spec's own `available`, which is what the catalog validator and the run
+    endpoint both ask.
+    """
+    assert JAVA.needs_compile is True
+    assert JAVA.main_class == "Main"
+    # A public class must live in a file named after it, so the source is written
+    # to `Main.java`. Writing `main.java` makes javac reject a correct submission
+    # with "class Main is public, should be declared in a file named Main.java".
+    assert JAVA.entry_name() == "Main.java"
+    assert JAVA.appends_entry_path is False
+    assert JAVA.available is (JAVA.interpreter is not None and JAVA.compiler is not None)
+    # An address-space cap aborts a JVM during start-up, for the same reason it
+    # aborts Node: the reservation is made before the program allocates.
+    assert JAVA.enforce_address_space is False
 
 
 def test_the_worker_answers_a_malformed_job_rather_than_crashing() -> None:
@@ -1382,3 +1456,247 @@ def test_the_worker_answers_a_malformed_job_rather_than_crashing() -> None:
 
 def test_the_run_request_contract_is_closed() -> None:
     assert CodeRunRequest.model_config.get("extra") == "forbid"
+
+
+# ============================================================ Java, and compiling
+#
+# Java is the first language in the registry that has to be *built* before it can
+# be run, so these tests cover the parts of the judge that only a compiled language
+# exercises: a build that happens once per submission, a build that fails, and a
+# verdict vocabulary that already had a place for "the source did not compile".
+#
+# They are skipped, not failed, on a machine with no JDK. A missing compiler is a
+# fact about the host, and the registry already reports Java as unavailable there;
+# a test suite is not the place to decide a host must have one.
+
+#: Reads one integer and echoes it, doubled. Deliberately trivial: these tests are
+#: about the build and the verdicts, not about Java.
+JAVA_ECHO_DOUBLE = """
+import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        System.out.println(in.nextInt() * 2);
+    }
+}
+"""
+
+#: A missing semicolon and an unclosed literal: `javac` rejects this before it
+#: generates anything, so no program ever exists to run.
+JAVA_WILL_NOT_COMPILE = """
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("no closing brace below
+    }
+}
+"""
+
+#: Compiles cleanly and then fails while running, which is the distinction the two
+#: verdicts exist to preserve.
+JAVA_THROWS_WHILE_RUNNING = """
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("printed before failing");
+        throw new IllegalStateException("deliberate");
+    }
+}
+"""
+
+#: Compiles cleanly and never returns.
+JAVA_SPINS_FOREVER = """
+public class Main {
+    public static void main(String[] args) throws Exception {
+        while (true) {
+            Thread.sleep(20);
+        }
+    }
+}
+"""
+
+#: One visible case and one hidden case, in the judge's own case shape.
+JAVA_CASES: list[dict[str, object]] = [
+    {"input": "21\n", "expected_output": "42\n", "is_hidden": False},
+    {"input": "0\n", "expected_output": "0\n", "is_hidden": True},
+]
+
+
+def _require_java() -> None:
+    if not JAVA.available:
+        pytest.skip("no JDK on this machine: neither java nor javac was found")
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_a_correct_java_submission_is_accepted() -> None:
+    """The end-to-end promise: a Java program that is right is accepted."""
+    report = judge(JAVA, JAVA_ECHO_DOUBLE, JAVA_CASES, ExecutionLimits.resolve(5_000, 256))
+
+    assert report.verdict is SubmissionStatus.ACCEPTED
+    assert report.cases_passed == report.cases_total == len(JAVA_CASES)
+    assert report.cases_run == len(JAVA_CASES)
+    assert report.truncated is False
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_a_java_source_that_does_not_compile_is_a_compilation_error() -> None:
+    """A failed build is a compilation error, and no case is reported as run.
+
+    The verdict is the one an interpreter's refusal of the source already produced,
+    so the submission table needs no new status for a compiled language. Running no
+    case at all matters as much: reporting a verdict per case for a program that
+    was never built would imply the cases were checked.
+    """
+    report = judge(JAVA, JAVA_WILL_NOT_COMPILE, JAVA_CASES, ExecutionLimits.resolve(5_000, 256))
+
+    assert report.verdict is SubmissionStatus.COMPILATION_ERROR
+    assert report.cases_run == 0
+    assert report.results == []
+    assert report.truncated is True
+    assert report.total_runtime_ms == 0
+    # The compiler's own diagnostic is what the learner needs, and it describes the
+    # submitted source rather than any case.
+    assert report.error_message
+    assert "Main.java" in report.error_message
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_a_java_program_that_throws_is_a_runtime_error() -> None:
+    """Compiling and then failing are two different verdicts, not one."""
+    report = judge(
+        JAVA, JAVA_THROWS_WHILE_RUNNING, JAVA_CASES, ExecutionLimits.resolve(5_000, 256)
+    )
+
+    assert report.verdict is SubmissionStatus.RUNTIME_ERROR
+    assert report.cases_run == 1
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_a_java_program_that_never_returns_is_a_time_limit() -> None:
+    report = judge(JAVA, JAVA_SPINS_FOREVER, JAVA_CASES, ExecutionLimits.resolve(1_000, 256))
+
+    assert report.verdict is SubmissionStatus.TIME_LIMIT_EXCEEDED
+    assert report.cases_run == 1
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_a_java_submission_is_compiled_once_for_all_of_its_cases(monkeypatch) -> None:
+    """One build per submission, not one per case.
+
+    This is the reason the build was moved out of the per-case loop. `javac` is
+    itself a JVM, so compiling per case would charge the learner a second
+    start-up for every test case the problem happens to have, against a per-case
+    clock meant for their algorithm.
+    """
+    import backend.app.judge.judge as judge_module
+
+    calls: list[str] = []
+    real_compile = judge_module.compile_source
+
+    def counting_compile(*args, **kwargs):
+        calls.append(args[3])
+        return real_compile(*args, **kwargs)
+
+    monkeypatch.setattr(judge_module, "compile_source", counting_compile)
+
+    cases = [
+        {"input": f"{n}\n", "expected_output": f"{n * 2}\n", "is_hidden": bool(n % 2)}
+        for n in range(1, 6)
+    ]
+    report = judge(JAVA, JAVA_ECHO_DOUBLE, cases, ExecutionLimits.resolve(5_000, 256))
+
+    assert report.verdict is SubmissionStatus.ACCEPTED
+    assert report.cases_run == 5
+    assert len(calls) == 1, "javac ran more than once for a single submission"
+
+
+@pytest.mark.skipif(not JAVA.available, reason="no JDK on this machine")
+def test_the_build_directory_is_gone_after_judging(monkeypatch) -> None:
+    """The compiled classes are the platform's, and must not outlive the request.
+
+    The sandbox directory a single run uses is removed by the worker. The build
+    directory is different: it is created by the parent precisely so it can outlive
+    one worker, which makes it the one path in the judge that has to be cleaned up
+    by a caller. Asserted on both outcomes, because the failure that matters is the
+    one after a failed build.
+    """
+    import backend.app.judge.judge as judge_module
+
+    seen: list[str] = []
+    real_compile = judge_module.compile_source
+
+    def recording_compile(language, source_code, limits, output_dir):
+        seen.append(output_dir)
+        return real_compile(language, source_code, limits, output_dir)
+
+    monkeypatch.setattr(judge_module, "compile_source", recording_compile)
+
+    judge(JAVA, JAVA_ECHO_DOUBLE, JAVA_CASES, ExecutionLimits.resolve(5_000, 256))
+    failed = judge(JAVA, JAVA_WILL_NOT_COMPILE, JAVA_CASES, ExecutionLimits.resolve(5_000, 256))
+
+    assert failed.verdict is SubmissionStatus.COMPILATION_ERROR
+    assert len(seen) == 2, "expected one build directory per submission"
+    for path in seen:
+        assert not os.path.exists(path), f"{path} survived the submission"
+
+
+def test_no_language_job_ever_carries_an_expected_output() -> None:
+    """The worker's input cannot contain an answer, in any mode or language.
+
+    A compile job is a new shape of job, so the property that made the old one safe
+    has to be re-asserted for it: whatever the parent hands over, the program that
+    runs is never told what it is supposed to print. Hidden cases live only in the
+    parent, and this is the boundary that keeps them there. Run against every
+    language in the registry, because a language that took a different path through
+    the builder is exactly how an answer would leak.
+    """
+    for language in REGISTRY:
+        jobs = [_job_for(language, mode="run", source="SOURCE", stdin_text="21\n")]
+        if language.needs_compile:
+            jobs.append(_job_for(language, mode="compile", source="SOURCE"))
+        for job in jobs:
+            serialised = json.dumps(job)
+            assert "expected_output" not in serialised
+            assert "SOURCE" in serialised
+            if job["mode"] == "run":
+                assert "21" in serialised
+
+
+def test_switching_java_off_removes_it_from_the_registry() -> None:
+    """A language the deployment switched off is reported the same as an unknown one."""
+    if JAVA.available:
+        assert get_language("java", Settings(execution_java=True)) is JAVA
+    assert get_language("java", Settings(execution_java=False)) is None
+    # Switching one language off leaves the others alone: the flags are per language,
+    # and a host that turns Java off still serves Python and JavaScript.
+    assert "python" not in {spec.id for spec in available_languages(Settings(execution_python=False))}
+    ids = {spec.id for spec in available_languages(Settings(execution_java=False))}
+    assert "java" not in ids
+
+
+def test_compiling_is_not_added_to_an_interpreted_language() -> None:
+    """Python and JavaScript keep exactly the command line they had.
+
+    The compile phase is opt-in per language, so the regression this guards against
+    is an interpreted language being routed through a build step it does not need --
+    which would cost every Python submission a needless extra process.
+    """
+    for language in (PYTHON, JAVASCRIPT):
+        assert language.needs_compile is False
+        assert language.appends_entry_path is True
+        assert language.run_command("ignored") == language.argv_prefix()
+        with pytest.raises(LanguageUnavailableError):
+            language.compile_command("build-dir")
+
+
+def test_java_is_not_runnable_on_a_host_without_a_compiler() -> None:
+    """A JRE-only host must not advertise Java, and the spec says so honestly.
+
+    Built rather than monkeypatched: `available` is the predicate the catalog
+    validator, the run endpoint and the languages route all consult, so it is worth
+    asserting that it genuinely depends on `javac` and not merely on `java`.
+    """
+    jre_only = replace(JAVA, compiler=None)
+
+    assert jre_only.available is False
+    with pytest.raises(LanguageUnavailableError):
+        jre_only.compile_command("build-dir")

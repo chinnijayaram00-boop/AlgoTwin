@@ -258,19 +258,33 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
     returns a result document; it never raises, and it never returns a verdict,
     because deciding whether the output was correct needs the expected value,
     which lives in the parent.
+
+    A job is in one of two modes. ``run`` starts the submitted program against one
+    case. ``compile`` builds it instead, for a language that has to be built before
+    it can be started. The two share the whole supervision path -- the sandbox
+    directory, the isolated environment, the process group, the output cap and the
+    clock -- because a compiler is a program this platform is being asked to run
+    on a learner's behalf, and it gets no weaker a sandbox than the submission does.
+    What differs is the limits it is charged and the kind it reports.
     """
     # The language itself is not needed here: the parent has already resolved the
-    # interpreter and put it in `argv_prefix`. The id travels in the job so the
-    # document a worker returns can be attributed in a log.
+    # interpreter and put the command line in the job. The id travels in the job so
+    # the document a worker returns can be attributed in a log.
     _ = str(job.get("language") or "")
+    mode = str(job.get("mode") or "run")
+    compiling = mode == "compile"
     source = str(job["source"])
     stdin_text = str(job.get("stdin") or "")
     entry_name = str(job["entry_name"])
     argv_prefix = [str(part) for part in job["argv_prefix"]]
-    wall_clock_ms = int(job["wall_clock_ms"])
+    append_entry = bool(job.get("append_entry", True))
+    # A compile is charged its own budget and its own output cap. Both exist so
+    # that building a submission cannot be charged to the clock the program's own
+    # execution is judged against.
+    wall_clock_ms = int(job["compile_wall_clock_ms"] if compiling else job["wall_clock_ms"])
     memory_mb = int(job["memory_mb"])
     cpu_seconds = int(job.get("cpu_seconds") or 0) or wall_clock_ms // 1000 + 1
-    max_output_bytes = int(job["max_output_bytes"])
+    max_output_bytes = int(job["compile_max_output_bytes"] if compiling else job["max_output_bytes"])
     enforce_address_space = bool(job.get("enforce_address_space", True))
 
     workdir = tempfile.mkdtemp(prefix="algotwin-judge-")
@@ -292,7 +306,7 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
 
         started = time.perf_counter()
         process = subprocess.Popen(
-            [*argv_prefix, entry_path],
+            [*argv_prefix, entry_path] if append_entry else argv_prefix,
             cwd=workdir,
             env=_sandbox_env(os.path.dirname(argv_prefix[0]) if argv_prefix else ""),
             stdin=subprocess.PIPE,
@@ -346,16 +360,19 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
         stderr = collected.get("stderr", {"text": "", "total_bytes": 0, "truncated": False})
         exit_code = process.returncode
 
-        if timed_out:
-            kind = "time_limit"
-        elif exit_code is not None and exit_code < 0:
-            kind = "killed_by_signal"
-        elif stdout["truncated"] or stderr["truncated"]:
-            kind = "output_limit"
-        elif exit_code == 0:
-            kind = "ok"
+        if compiling:
+            kind, error = _classify_compile(timed_out, exit_code, stdout, stderr, wall_clock_ms)
         else:
-            kind = "nonzero_exit"
+            kind, error = "time_limit", None
+            if not timed_out:
+                if exit_code is not None and exit_code < 0:
+                    kind = "killed_by_signal"
+                elif stdout["truncated"] or stderr["truncated"]:
+                    kind = "output_limit"
+                elif exit_code == 0:
+                    kind = "ok"
+                else:
+                    kind = "nonzero_exit"
 
         return _result(
             kind=kind,
@@ -367,12 +384,39 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
             stderr_truncated=bool(stderr["truncated"]),
             duration_ms=duration_ms,
             peak_memory_mb=peak_memory_mb,
-            error=None,
+            error=error,
         )
     finally:
         # The sandbox directory holds the learner's source and whatever the
-        # program wrote, so it goes away whether the run succeeded or not.
+        # program wrote, so it goes away whether the run succeeded or not. The
+        # compiled artifact does not live here -- the parent owns that directory,
+        # because it has to outlive this worker to serve the remaining cases.
         _remove_tree(workdir)
+
+
+def _classify_compile(
+    timed_out: bool,
+    exit_code: int | None,
+    stdout: dict[str, Any],
+    stderr: dict[str, Any],
+    wall_clock_ms: int,
+) -> tuple[str, str | None]:
+    """How a compilation went, as one observation kind.
+
+    Every way a build can fail is reported as ``compile_error`` rather than as the
+    distinct runtime kinds, because from the learner's side they are one thing:
+    the source did not become a program. The ``error`` line distinguishes them --
+    a compiler that timed out, one that printed too much, and one that rejected
+    the source are three different messages -- while the verdict the parent
+    derives is one, which is what the submission table has a column for.
+    """
+    if timed_out:
+        return "compile_error", f"The compiler did not finish within {wall_clock_ms} ms."
+    if stdout["truncated"] or stderr["truncated"]:
+        return "compile_error", "The compiler produced more output than the judge accepts."
+    if exit_code == 0:
+        return "ok", None
+    return "compile_error", f"The compiler exited with code {exit_code}."
 
 
 def _remove_tree(path: str) -> None:
