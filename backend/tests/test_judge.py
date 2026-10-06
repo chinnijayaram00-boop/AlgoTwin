@@ -29,6 +29,8 @@ import json
 import os
 import subprocess
 import sys
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
 
@@ -282,12 +284,112 @@ def test_a_duplicate_slug_is_refused() -> None:
 # ============================================== the catalog's expected outputs
 
 
+#: How many reference solutions the integrity check judges at the same time.
+#:
+#: Judging one combination is almost entirely subprocess work -- the judge starts
+#: a worker process per case, and each worker starts the learner's program -- so
+#: overlapping runs cost CPU but almost no GIL contention. The check is
+#: parametrised over every problem and every advertised language, which on the
+#: current catalog is well over a hundred independent runs that would take
+#: minutes to do one after another. Six is a compromise: enough to hide the
+#: serial cost of an individual run, few enough that a run competing for the
+#: machine does not spend its own per-case budget waiting for a sibling.
+INTEGRITY_WORKERS = max(1, min(6, os.cpu_count() or 4))
+
+#: The name of the parametrised test below. Items are matched by this prefix when
+#: deciding which combinations the shared integrity run owes a verdict to.
+INTEGRITY_TEST = "test_every_reference_solution_passes_every_case"
+
+
+def _judge_reference_solution(definition: dict, language_id: str) -> str | None:
+    """Judge one reference solution against every case of its problem.
+
+    Returns ``None`` when every case passed, otherwise a message naming the
+    problem, the language and the cases that disagreed with the oracle. An
+    exception raised by the judge itself is captured and returned in the same
+    shape rather than propagated: this runs on a worker thread, where a raise
+    would surface as an error on whichever parametrised case happened to read
+    the result first, and the traceback would not say which combination it
+    belonged to.
+    """
+    key = f"{definition['slug']}/{language_id}"
+    spec = get_language(language_id)
+    if spec is None:
+        return f"{key}: this machine cannot run {language_id}"
+    try:
+        report = judge(
+            language=spec,
+            source_code=definition["reference_solutions"][language_id],
+            cases=definition["test_cases"],
+            limits=ExecutionLimits.resolve(3_000, 256),
+        )
+    except Exception:  # noqa: BLE001 - a crash here is a failed integrity check
+        return f"{key}: judging raised\n{traceback.format_exc()}"
+
+    failures = [result for result in report.results if not result.passed]
+    if failures:
+        return (
+            f"{key}: the reference solution failed "
+            f"{[(r.index, r.verdict.value) for r in failures]}"
+        )
+    if report.verdict is not SubmissionStatus.ACCEPTED:
+        return f"{key}: verdict came back {report.verdict.value}"
+    if report.cases_passed != report.cases_total:
+        return f"{key}: {report.cases_passed}/{report.cases_total} cases passed"
+    return None
+
+
+@pytest.fixture(scope="session")
+def reference_solution_reports(
+    request: pytest.FixtureRequest,
+) -> dict[tuple[str, str], str | None]:
+    """Judge every integrity combination the current run actually selected.
+
+    One fixture rather than one judge call per parametrised case, because the
+    suite's wall clock was the *sum* of a hundred-plus subprocess-heavy runs. The
+    combinations are submitted together and judged on a bounded pool, so the cost
+    becomes the slowest single run plus a fraction of the rest.
+
+    Only the combinations that survived collection are judged. Reading
+    ``session.items`` is what keeps a targeted ``-k reverse-bits-python`` cheap:
+    the pool is filled with the combinations that are about to run, not with the
+    whole catalog. Combinations whose language this machine cannot run are left
+    out entirely, which is what makes the test skip them.
+    """
+    selected: list[tuple[dict, str]] = []
+    for item in request.session.items:
+        if not item.name.startswith(INTEGRITY_TEST):
+            continue
+        params = item.callspec.params
+        language_id = params["language_id"]
+        if get_language(language_id) is None:
+            continue
+        selected.append((params["definition"], language_id))
+
+    reports: dict[tuple[str, str], str | None] = {}
+    if not selected:
+        return reports
+    with ThreadPoolExecutor(max_workers=min(INTEGRITY_WORKERS, len(selected))) as pool:
+        pending = {
+            pool.submit(_judge_reference_solution, definition, language_id): (
+                definition["slug"],
+                language_id,
+            )
+            for definition, language_id in selected
+        }
+        for future in as_completed(pending):
+            reports[pending[future]] = future.result()
+    return reports
+
+
 @pytest.mark.parametrize(
     ("definition", "language_id"),
     [(item, language) for item in CATALOG for language in item["supported_languages"]],
     ids=[f"{item['slug']}-{language}" for item in CATALOG for language in item["supported_languages"]],
 )
-def test_every_reference_solution_passes_every_case(definition, language_id) -> None:
+def test_every_reference_solution_passes_every_case(
+    definition, language_id, reference_solution_reports
+) -> None:
     """Two independent implementations must agree on every expected output.
 
     The expected outputs are derived from an oracle at import time rather than
@@ -304,24 +406,20 @@ def test_every_reference_solution_passes_every_case(definition, language_id) -> 
     being present and non-empty, and never once executed. A reference solution that
     did not compile, or printed the wrong thing, would have been published
     regardless. Anything the catalog advertises from here on is executed.
-    """
-    spec = get_language(language_id)
-    if spec is None:
-        pytest.skip(f"{language_id} cannot be run on this machine")
 
-    report = judge(
-        language=spec,
-        source_code=definition["reference_solutions"][language_id],
-        cases=definition["test_cases"],
-        limits=ExecutionLimits.resolve(3_000, 256),
+    The judging itself happens in :func:`reference_solution_reports`, once, before
+    the first of these parametrised cases runs. Each case here then reads its own
+    verdict, so the granularity above survives while the wall clock is that of the
+    slowest single combination rather than the sum of all of them.
+    """
+    if get_language(language_id) is None:
+        pytest.skip(f"{language_id} cannot be run on this machine")
+    key = (definition["slug"], language_id)
+    assert key in reference_solution_reports, (
+        f"{definition['slug']}/{language_id}: the shared integrity run did not "
+        "judge this combination, so the assertion below would be vacuous"
     )
-    failures = [result for result in report.results if not result.passed]
-    assert not failures, (
-        f"{definition['slug']}/{language_id}: the reference solution failed "
-        f"{[(r.index, r.verdict.value) for r in failures]}"
-    )
-    assert report.verdict is SubmissionStatus.ACCEPTED
-    assert report.cases_passed == report.cases_total
+    assert reference_solution_reports[key] is None, reference_solution_reports[key]
 
 
 # ========================================================== the output rule

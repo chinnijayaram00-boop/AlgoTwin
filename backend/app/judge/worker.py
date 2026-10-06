@@ -58,7 +58,26 @@ _DRAIN_CHUNK = 64 * 1024
 #: Environment variables handed to the learner's program. Everything else the
 #: parent has -- including anything a developer exported for their own session --
 #: is dropped, so the program cannot read configuration it was not given.
-_PASSTHROUGH_ENV = ("PATH", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "COMSPEC", "PATHEXT")
+#:
+#: This tuple is also what the parent starts *this* process with, imported from
+#: here rather than restated in the runner. The two have to be the same list for
+#: two independent reasons. The worker derives the sandbox's environment from its
+#: own ``os.environ``, so a variable the parent does not hand down can never reach
+#: the program however much the sandbox would like to pass it on -- which is how
+#: ``TEMP`` and ``TMP`` were silently missing from every run even though they are
+#: named here. And the parent must not widen the set on its own, because one hop
+#: from here is a submitted program.
+WORKER_PASSTHROUGH_ENV = (
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "SystemRoot",
+    "COMSPEC",
+    "PATHEXT",
+)
 
 #: A minimal `PATH` for the program itself. The interpreter is started by absolute
 #: path, so this is not needed to run the program; it is here so a program that
@@ -86,7 +105,7 @@ def _sandbox_env(interpreter_dir: str) -> dict[str, str]:
     make every program fail with a confusing error instead of a real one.
     """
     env: dict[str, str] = {}
-    for name in _PASSTHROUGH_ENV:
+    for name in WORKER_PASSTHROUGH_ENV:
         value = os.environ.get(name)
         if value:
             env[name] = value

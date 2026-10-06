@@ -30,7 +30,7 @@ from typing import Any
 
 from backend.app.judge.languages import LanguageSpec, LanguageUnavailableError
 from backend.app.judge.limits import WORKER_GRACE_MS, ExecutionLimits
-from backend.app.judge.worker import RESULT_SENTINEL
+from backend.app.judge.worker import RESULT_SENTINEL, WORKER_PASSTHROUGH_ENV
 
 #: The worker script, invoked by path. It is deliberately *not* started as
 #: ``-m backend.app.judge.worker``: that would require the repository on the
@@ -90,6 +90,49 @@ def _worker_argv() -> list[str]:
     if not WORKER_PATH.is_file():  # pragma: no cover - only if the package is broken
         raise ExecutionError("The judge worker script is missing from the installation.")
     return [sys.executable, "-I", "-B", str(WORKER_PATH)]
+
+
+def _worker_env() -> dict[str, str]:
+    """The environment the worker process itself is started with.
+
+    This is an allow-list, never ``os.environ.copy()``, because the worker is one
+    hop from a submitted program: whatever is put here is read back out by
+    :func:`backend.app.judge.worker._sandbox_env` and handed to the learner's
+    code. ``JWT_SECRET_KEY``, ``DATABASE_URL`` and the rest of the deployment's
+    configuration are therefore absent by construction rather than by a filter
+    somebody has to remember to keep.
+
+    The list is the worker's own :data:`WORKER_PASSTHROUGH_ENV`, imported rather
+    than repeated, so the parent cannot hand down a variable the worker will not
+    forward -- and, more importantly, the worker can no longer fail to *see* one
+    it promises to forward. The previous two-variable environment
+    (``PATH``/``SYSTEMROOT``) meant ``TEMP`` and ``TMP`` were absent from every
+    worker on Windows, so the sandboxed program ran with no temp directory at
+    all: ``java.io.tmpdir`` fell back to ``C:\\Windows\\`` and every JVM start --
+    each case's run *and* every ``javac`` -- spent about 1.4 seconds in directory
+    and access checks before the program's first line. That single missing pair
+    of variables was most of the cost of judging a Java submission.
+
+    ``PATH`` and ``SystemRoot`` are guaranteed rather than merely inherited: a
+    worker with no ``PATH`` cannot start an interpreter that is found by name,
+    and Windows refuses to initialise a great many APIs without ``SystemRoot``.
+    """
+    env: dict[str, str] = {}
+    for name in WORKER_PASSTHROUGH_ENV:
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    env.setdefault("PATH", os.environ.get("PATH", ""))
+    if not any(key.lower() == "systemroot" for key in env):
+        # Last resort rather than a plausible-looking guess: an empty SystemRoot
+        # is worse than none, because Windows then reports a confusing failure
+        # instead of one that names the variable.
+        fallback = os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT")
+        if not fallback and os.name == "nt":  # pragma: no cover - Windows fallback
+            fallback = r"C:\Windows"
+        if fallback:
+            env["SystemRoot"] = fallback
+    return env
 
 
 def _build_job(
@@ -316,7 +359,7 @@ def _run_worker(job: dict[str, Any], *, parent_budget_ms: int) -> RunOutcome:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=os.path.dirname(os.path.abspath(__file__)),
-            env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")},
+            env=_worker_env(),
             close_fds=True,
             **_new_process_group(),
         )

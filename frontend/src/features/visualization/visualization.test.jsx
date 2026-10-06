@@ -364,7 +364,7 @@ describe("the rendered page", () => {
     platform.catalog = [BUBBLE_SORT];
     platform.timeline = () => TIMELINE;
     platform.rejected = () => null;
-    fetchMock.mockImplementation((url, options = {}) => {
+    fetchMock.mockImplementation((url) => {
       const path = String(url);
       if (path.endsWith("/algorithms")) return Promise.resolve(jsonResponse({ items: platform.catalog }));
       if (path.endsWith("/visualize")) {
