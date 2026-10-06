@@ -27,12 +27,11 @@ from typing import Any
 
 from database.problem_spec import int_tokens, judged_case, source
 
-
 # --------------------------------------------------------------------------- #
 # Reverse the bits of a 32-bit unsigned integer
 # --------------------------------------------------------------------------- #
 
-REVERSE_BITS_INPUT = "12\n1 12 0 255"
+REVERSE_BITS_INPUT = "4\n1 12 0 255"
 
 
 def _reverse_bits(stdin: str) -> str:
@@ -71,11 +70,11 @@ REVERSE_BITS: dict[str, Any] = {
     ),
     "input_format": (
         "Line 1: `m`, the number of values.\n"
-        "Line 2: `m` integers, each in the range 0 to 2^31 - 1."
+        "Line 2: `m` integers, each in the range 0 to 2^32 - 1."
     ),
     "output_format": "Print `m` lines, each the bit-reversed value, in the range 0 to 2^32 - 1.",
     "constraints": (
-        "1 <= m <= 10^4 and 0 <= n <= 2^31 - 1. The reversal is over all 32 bits, so "
+        "1 <= m <= 10^4 and 0 <= n <= 2^32 - 1. The reversal is over all 32 bits, so "
         "leading zeros of the input are not stripped: `1` reverses to 2147483648."
     ),
     "examples": [
@@ -87,7 +86,7 @@ REVERSE_BITS: dict[str, Any] = {
         {
             "input": "3\n0 255 2147483647",
             "output": _reverse_bits("3\n0 255 2147483647"),
-            "explanation": "0 is all zeros so it stays 0. 255 is 00000000000000000000000011111111 and reverses to 4294967040. 2147483647 has every bit set, so it reverses to itself.",
+            "explanation": "0 is all zeros so it stays 0. 255 is 00000000000000000000000011111111 and reverses to 4278190080. 2147483647 has every bit set, so it reverses to itself.",
         },
     ],
     "hints": [
@@ -186,7 +185,7 @@ REVERSE_BITS: dict[str, Any] = {
                     Scanner in = new Scanner(System.in);
                     int m = in.nextInt();
                     for (int i = 0; i < m; i++) {
-                        System.out.println(reverseBits(in.nextInt()));
+                        System.out.println(reverseBits(in.nextLong()));
                     }
                 }
             }
@@ -261,7 +260,7 @@ REVERSE_BITS: dict[str, Any] = {
                     Scanner in = new Scanner(System.in);
                     int m = in.nextInt();
                     for (int i = 0; i < m; i++) {
-                        System.out.println(reverseBits(in.nextInt()));
+                        System.out.println(reverseBits(in.nextLong()));
                     }
                 }
             }
@@ -290,16 +289,17 @@ COUNT_SET_BITS_INPUT = "6\n0 1 7 8 255 4294967295"
 
 
 def _count_set_bits(stdin: str) -> str:
-    """Write the number in binary and count the ones.
+    """Ask the interpreter for the popcount of each value.
 
-    The references use `x & (x - 1)`, so counting characters in a formatted string
-    is a completely separate derivation of the same number.
+    The references clear the lowest set bit one at a time, so a single built-in
+    call that answers the same question is a completely separate derivation of
+    the same number.
     """
     values = int_tokens(stdin)
     m = values[0]
     answers = []
     for n in values[1 : 1 + m]:
-        answers.append(str(bin(n).count("1")))
+        answers.append(str(n.bit_count()))
     return "\n".join(answers)
 
 
@@ -528,7 +528,7 @@ COUNT_SET_BITS: dict[str, Any] = {
         judged_case(_count_set_bits, "1\n0"),
         judged_case(_count_set_bits, "2\n4294967295 2147483648"),
         judged_case(_count_set_bits, "5\n1 2147483648 2147483647 4294967294 1431655765", is_hidden=True),
-        judged_case(_count_set_bits, "4\n4294967296 4294967297 8589934593 2147483649", is_hidden=True),
+        judged_case(_count_set_bits, "4\n4278190080 4294901760 2147483649 4294967295", is_hidden=True),
         judged_case(_count_set_bits, "6\n999999999 1000000000 2000000000 3000000001 123456789 987654321", is_hidden=True),
         judged_case(_count_set_bits, COUNT_SET_BITS_BULK_INPUT, is_hidden=True),
     ],

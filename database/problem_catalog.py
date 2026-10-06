@@ -32,9 +32,15 @@ from sqlalchemy.orm import Session
 
 from database.models import Problem
 from database.problem_defs.arrays import ARRAYS_PROBLEMS
+from database.problem_defs.binary_search import BINARY_SEARCH_PROBLEMS
+from database.problem_defs.dynamic_programming import DYNAMIC_PROGRAMMING_PROBLEMS
 from database.problem_defs.graphs import GRAPHS_PROBLEMS
+from database.problem_defs.greedy import GREEDY_PROBLEMS
+from database.problem_defs.heaps import HEAPS_PROBLEMS
 from database.problem_defs.linked_lists import LINKED_LISTS_PROBLEMS
+from database.problem_defs.math_and_bits import MATH_AND_BITS_PROBLEMS
 from database.problem_defs.searching_and_dp import SEARCHING_AND_DP_PROBLEMS
+from database.problem_defs.sorting import SORTING_PROBLEMS
 from database.problem_defs.strings_and_stacks import STRINGS_AND_STACKS_PROBLEMS
 from database.problem_defs.trees import TREES_PROBLEMS
 from database.problem_spec import CatalogError, validate_definition, visible_cases
@@ -42,11 +48,25 @@ from database.problem_spec import CatalogError, validate_definition, visible_cas
 #: Every catalog definition, in the order they are seeded. The order is stable so
 #: a fresh database gets the same problem ids every time, which keeps a migration
 #: or a support conversation reproducible.
+#:
+#: Modules are listed alphabetically, which also preserves the relative order of
+#: the six that were seeded first: a deployment that already has rows keeps every
+#: existing id, because reconciliation matches on slug and never renumbers. Six
+#: modules -- binary search, dynamic programming, greedy, heaps, maths and bits,
+#: sorting -- were committed with their definitions but never listed here, so
+#: twenty publishable problems existed on disk and reached no learner. Listing
+#: them is what turns those files from source into catalog.
 CATALOG: list[dict[str, Any]] = [
     *ARRAYS_PROBLEMS,
+    *BINARY_SEARCH_PROBLEMS,
+    *DYNAMIC_PROGRAMMING_PROBLEMS,
     *GRAPHS_PROBLEMS,
+    *GREEDY_PROBLEMS,
+    *HEAPS_PROBLEMS,
     *LINKED_LISTS_PROBLEMS,
+    *MATH_AND_BITS_PROBLEMS,
     *SEARCHING_AND_DP_PROBLEMS,
+    *SORTING_PROBLEMS,
     *STRINGS_AND_STACKS_PROBLEMS,
     *TREES_PROBLEMS,
 ]

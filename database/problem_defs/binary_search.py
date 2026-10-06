@@ -21,7 +21,6 @@ from typing import Any
 
 from database.problem_spec import int_tokens, judged_case, source
 
-
 # --------------------------------------------------------------------------- #
 # Search in a rotated sorted array
 # --------------------------------------------------------------------------- #
@@ -626,8 +625,7 @@ def _split_largest_sum(stdin: str) -> str:
             for start in range(parts - 1, length):
                 piece = prefix[length] - prefix[start]
                 candidate = max(best[parts - 1][start], piece)
-                if candidate < best_value:
-                    best_value = candidate
+                best_value = min(best_value, candidate)
             best[parts][length] = best_value
     return str(best[k][n])
 

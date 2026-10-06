@@ -22,7 +22,6 @@ from typing import Any
 
 from database.problem_spec import int_tokens, judged_case, source
 
-
 # --------------------------------------------------------------------------- #
 # Kth largest element in a stream
 # --------------------------------------------------------------------------- #

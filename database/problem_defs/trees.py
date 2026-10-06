@@ -70,6 +70,12 @@ def _split(stdin: str) -> tuple[list[int], list[int]]:
 
 BST_OK_INPUT = "7\n8 4 12 2 6 10 14"
 
+# Every node here beats its parent -- 1 < 5, 4 > 5, 3 < 4, 6 > 4 -- and the tree
+# is still invalid, because 3 sits in 5's right subtree while being smaller than
+# 5. This is the counterexample hint 1 asks for, so it is spelled out here rather
+# than left to each learner to invent.
+BST_BAD_INPUT = "7\n5 1 4 0 0 3 6"
+
 
 def _valid_bst(stdin: str) -> str:
     root = _build(_split(stdin)[0])
@@ -116,9 +122,9 @@ BST_VALID: dict[str, Any] = {
             "explanation": "Every left subtree value is below its node and every right subtree value is above, so the tree is valid.",
         },
         {
-            "input": "5\n5 1 4 0 0 3 6",
-            "output": _valid_bst("5\n5 1 4 0 0 3 6"),
-            "explanation": "3 sits in the left subtree of 5 but is larger than 4, the root of that subtree. A valid tree would need 3 to stay below 4.",
+            "input": BST_BAD_INPUT,
+            "output": _valid_bst(BST_BAD_INPUT),
+            "explanation": "Every node respects its own parent, and the tree is still invalid: 3 lives in 5's right subtree but is smaller than 5, a bound set two levels above it. A valid tree would need 3 to stay above 5.",
         },
     ],
     "hints": [
@@ -423,7 +429,7 @@ BST_VALID: dict[str, Any] = {
     "test_cases": [
         judged_case(_valid_bst, BST_OK_INPUT),
         judged_case(_valid_bst, "3\n2 1 3"),
-        judged_case(_valid_bst, "5\n5 1 4 0 0 3 6"),
+        judged_case(_valid_bst, BST_BAD_INPUT),
         judged_case(_valid_bst, "1\n7"),
         judged_case(_valid_bst, "4\n10 5 15 6", is_hidden=True),
         judged_case(_valid_bst, "6\n20 10 30 5 15 25 35", is_hidden=True),
