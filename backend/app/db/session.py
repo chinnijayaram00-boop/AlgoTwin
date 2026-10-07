@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.app.core.config import get_settings
 from backend.app.db.schema import (
     ensure_ai_insight_schema,
+    ensure_interview_schema,
     ensure_problem_schema,
     ensure_progress_schema,
     ensure_submission_schema,
@@ -55,6 +56,9 @@ def init_db() -> None:
     # that does not exist yet and only complain at insert time, so the ordering is
     # ours to get right rather than the engine's.
     ensure_ai_insight_schema(engine)
+    # The interview tables are last of all for the same reason: `interview_questions`
+    # references `users`, `problems`, `submissions`, and `interview_sessions`.
+    ensure_interview_schema(engine)
     # The catalog and the demo account are seeded independently. The catalog is
     # what a learner actually practises on, and a deployment that turns
     # `SEED_DEMO_DATA` off to avoid shipping the published demo password must

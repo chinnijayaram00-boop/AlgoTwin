@@ -42,7 +42,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 #: The single head, asserted literally so a second branch or an accidental new
 #: head fails here rather than surfacing later as two databases sitting at
 #: different revisions under the same name.
-EXPECTED_HEAD = "f_ai_insights"
+EXPECTED_HEAD = "g_interview_sessions"
 
 #: The chain, oldest first, also asserted literally. The ordering is the point:
 #: ``c_submission_records`` rebuilds ``submissions`` and
@@ -55,6 +55,7 @@ EXPECTED_CHAIN = (
     "d_problem_catalog",
     "e_judged_submissions",
     "f_ai_insights",
+    "g_interview_sessions",
 )
 
 

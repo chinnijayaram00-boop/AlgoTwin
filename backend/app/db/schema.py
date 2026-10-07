@@ -1,4 +1,5 @@
 from database.models.ai_insight import AIInsight
+from database.models.interview import InterviewQuestion, InterviewSession
 from database.models.problem import (
     DEFAULT_MEMORY_LIMIT_MB,
     DEFAULT_TIME_LIMIT_MS,
@@ -724,3 +725,29 @@ def ensure_ai_insight_schema(bind: Engine) -> None:
     if "ai_insights" in inspect(bind).get_table_names():
         return
     AIInsight.__table__.create(bind=bind, checkfirst=True)
+
+
+# -------------------------------------------------------------------------------
+# Mock interviews
+# -------------------------------------------------------------------------------
+
+
+def ensure_interview_schema(bind: Engine) -> None:
+    """Create the two interview tables when this release introduces them.
+
+    Mirrors the Alembic revision ``g_interview_sessions``, and like
+    :func:`ensure_ai_insight_schema` this does not adopt a legacy shape: there is
+    no earlier version of these tables to bring forward, so the only state to
+    reach is "present" or "absent".
+
+    The DDL comes from the models themselves rather than from a hand-written
+    copy, for the same reason ``ensure_ai_insight_schema`` gives: there is only
+    one definition of each table's shape, so the two cannot drift. The question
+    table declares foreign keys into the session table, so the session table has
+    to exist first.
+    """
+    tables = set(inspect(bind).get_table_names())
+    if "interview_sessions" not in tables:
+        InterviewSession.__table__.create(bind=bind, checkfirst=True)
+    if "interview_questions" not in tables:
+        InterviewQuestion.__table__.create(bind=bind, checkfirst=True)

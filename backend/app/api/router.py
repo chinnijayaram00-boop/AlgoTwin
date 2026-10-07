@@ -6,6 +6,7 @@ from backend.app.api.routes import (
     auth,
     dashboard,
     health,
+    interviews,
     judge,
     learning_path,
     problems,
@@ -26,6 +27,7 @@ api_router.include_router(learning_path.router)
 # the submission routes above it.
 api_router.include_router(judge.router)
 api_router.include_router(submissions.router)
+api_router.include_router(interviews.router)
 api_router.include_router(algorithms.router)
 api_router.include_router(ai.router)
 api_router.include_router(auth.router)
