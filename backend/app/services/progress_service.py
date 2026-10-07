@@ -105,7 +105,7 @@ def list_progress(
     status: str | None = None,
     difficulty: str | None = None,
     topic: str | None = None,
-    limit: int = 20,
+    limit: int | None = None,
     offset: int = 0,
 ) -> ProblemProgressListResponse:
     """List the published catalog annotated with one learner's status.
@@ -114,6 +114,13 @@ def list_progress(
     opened, so a client can render "Not Started" without a second request. The
     optional filters narrow the same catalog; none of them can widen it beyond
     what the learner is allowed to see.
+
+    Pagination is opt-in. ``limit=None`` -- the default and the only value a
+    caller who does not think about paging ever sends -- returns the whole
+    filtered catalog, so the list cannot silently truncate when the catalog
+    grows past whatever page size happened to be chosen when it was written.
+    A caller that passes ``limit`` gets a real bounded page and can walk the
+    rest with ``offset``.
     """
     filters = [Problem.is_published.is_(True)]
     if difficulty:
@@ -137,8 +144,11 @@ def list_progress(
         items = [item for item in items if item.status == wanted]
 
     total = len(items)
+    # Clamped only so a direct caller passing a negative offset cannot wrap
+    # around and read the tail of the list; the requested value is echoed back.
+    start = max(int(offset), 0)
     return ProblemProgressListResponse(
-        items=items[offset : offset + limit],
+        items=items[start:] if limit is None else items[start : start + limit],
         total=total,
         limit=limit,
         offset=offset,

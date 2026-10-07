@@ -104,6 +104,20 @@ npm run build:frontend
 
 `typecheck:frontend` runs TypeScript in JavaScript-check mode; it is intentionally configured so the JavaScript UI remains lightweight while still exposing a repeatable type validation command.
 
+Verified on the current `main`:
+
+| Command | Result |
+| --- | --- |
+| `python -m pytest` | 683 passed |
+| `python -m ruff check backend database` | All checks passed |
+| `npm run lint:frontend` | 0 errors (2 pre-existing warnings) |
+| `npm run typecheck:frontend` | clean |
+| `npm run test:frontend` | 233 passed (13 files) |
+| `npm run build:frontend` | succeeds, with the chunk-size warning noted below |
+| `git diff --check` | clean |
+
+`test_judge.py` is the slowest file (223 tests) because it actually executes code in every language the catalog advertises.
+
 ## Database configuration
 
 The default local URL is `sqlite:///./algotwin.db`. For PostgreSQL, set a URL such as:
@@ -128,9 +142,11 @@ Do not commit `.env`, database files, or AI keys.
 
 ### Seeded problem catalog
 
-`database/problem_defs/` holds 12 judge-ready problems (4 Easy, 8 Medium) as validated Python definitions — statement, input and output format, hints, tags, per-problem limits, visible and hidden cases, and a reference solution per language. `SEED_PROBLEM_CATALOG=true` (the default) validates each definition and then upserts it on startup.
+`database/problem_defs/` holds 50 judge-ready problems (10 Easy, 27 Medium, 13 Hard) as validated Python definitions — statement, input and output format, hints, tags, per-problem limits, visible and hidden cases, and a reference solution per language. The bank carries 399 cases (197 visible, 202 hidden), 6 to 10 per problem with an average of 8, spread over 12 primary topics and 44 distinct topics in all; every problem has exactly 5 hints, a 256 MB memory limit, and a time limit of 2000 to 5000 ms. `SEED_PROBLEM_CATALOG=true` (the default) validates each definition and then upserts it on startup.
 
-Validation is not a formality: `database/problem_spec.py` runs every reference solution against the definition's own cases before the row is written, so a definition whose reference solution does not pass fails the seed rather than shipping a problem the judge would mark wrong. Language support is checked against the judge registry for the same reason — the catalog once advertised Java, which the runner cannot execute, and a tab that ends in a `422` is a defect.
+Language coverage is Python and JavaScript for all 50 problems and Java for the 36 that ship a Java reference solution — 136 problem/language pairs in total.
+
+Validation is not a formality: `database/problem_spec.py` runs every reference solution against the definition's own cases before the row is written, so a definition whose reference solution does not pass fails the seed rather than shipping a problem the judge would mark wrong. Language support is checked against the judge registry for the same reason — a definition may only advertise a language the runner can execute, because a tab that ends in a `422` is a defect. The catalog's advertised set is exactly the registry's: `python`, `javascript`, `java`.
 
 Synchronization is non-destructive. A definition is matched by slug, and an existing row keeps its id, its attachment text, and its `is_published` flag; only judge-owned columns are refreshed. Changing a problem's cases changes its row, so treat an edited definition as a schema change for anything already graded against the old cases.
 
@@ -174,12 +190,31 @@ Current routes:
 - `GET /api/v1/problems` — paginated problem catalog with difficulty and topic filters
 - `GET /api/v1/problems/{slug}` — problem detail and examples
 - `GET /api/v1/dashboard/summary` — catalog summary for the dashboard
-- `GET /api/v1/algorithms` — algorithm registry contract
 - `GET /api/v1/judge/languages` — the languages this deployment can actually run
 - `POST /api/v1/problems/{problem_id}/run` — run a program against the problem's visible cases
+- `POST /api/v1/submissions` — judge a program against the visible and hidden cases and store the row
+- `GET /api/v1/submissions` — the signed-in learner's submissions, filterable by problem and verdict
+- `GET /api/v1/submissions/{submission_id}` — one stored submission, counts and measurements only
+- `GET /api/v1/problems/{problem_id}/submissions` — the signed-in learner's submissions for one problem
+- `GET /api/v1/progress/me` — the caller's standing across the published catalog
+- `GET /api/v1/progress/problems` — every published problem annotated with the caller's status
+- `GET /api/v1/progress/problems/{problem_id}` — the caller's record for one problem
+- `PUT /api/v1/progress/problems/{problem_id}` — set the caller's status for a problem
+- `POST /api/v1/progress/problems/{problem_id}/attempt` — record one more attempt
+- `GET /api/v1/algorithms` — the algorithm registry
+- `GET /api/v1/algorithms/categories` — the registry grouped by category
+- `GET /api/v1/algorithms/problems/{slug}/algorithms` — the algorithms a problem demonstrates
+- `GET /api/v1/algorithms/{algorithm_id}` — one algorithm's contract, grammar, and sample inputs
+- `POST /api/v1/algorithms/{algorithm_id}/visualize` — trace one algorithm over an input, frame by frame
+- `POST /api/v1/algorithms/compare` — trace two algorithms over one input for a side-by-side view
 - `GET /api/v1/ai/status` — non-secret AI provider configuration status
+- `POST /api/v1/problems/{problem_id}/explanation` — a grounded explanation of the problem
+- `POST /api/v1/submissions/{submission_id}/diagnose` — a grounded diagnosis of a stored submission
+- `POST /api/v1/code/complexity` — a grounded time/space complexity assessment
 
-AI generation and interview state are intentionally reserved for the next implementation phase. The frontend displays those boundaries rather than presenting simulated explanations or interview results. Code execution is real; see [Code execution](#code-execution).
+That is the complete route surface. Learner progress is described further down under [Learner progress](#learner-progress); the rest are contract-first routes whose behaviour is pinned by the backend and frontend test suites.
+
+AI routes are implemented but fail closed: without a provider credential they answer `503` rather than inventing prose, and `GET /api/v1/ai/status` reports that state so the workspace can label the panels unavailable. Algorithm visualization and comparison run for real. Interview sessions remain reserved for a later phase, and `InterviewsPage` presents the intended workflow rather than simulated results. Code execution is real; see [Code execution](#code-execution).
 
 ## Code execution
 
@@ -192,7 +227,7 @@ Two routes make the contract legible instead of hard-coding it in the UI:
 
 ### What runs where
 
-Learner code never runs inside the API process. `backend/app/judge/runner.py` starts one fresh worker per case through `backend/app/judge/worker.py`, which executes the program with `python -I -B` (isolated mode: no user site-packages, no `PYTHON*` environment variables, no working-directory imports) or `node`, and exits. The parent owns the clock, the memory ceiling, and the output cap; it never parses the program's stdout to decide anything but truncation.
+Learner code never runs inside the API process. `backend/app/judge/runner.py` starts one fresh worker per case through `backend/app/judge/worker.py`, which executes the program with `python -I -B` (isolated mode: no user site-packages, no `PYTHON*` environment variables, no working-directory imports), `node`, or `javac` followed by `java`, and exits. The parent owns the clock, the memory ceiling, and the output cap; it never parses the program's stdout to decide anything but truncation.
 
 Per case the job receives the source, the input, and the limits. It does not receive the expected output. A worker therefore cannot learn the answer by reading its own job.
 
@@ -206,14 +241,14 @@ Per case the job receives the source, the input, and the limits. It does not rec
 ### Limits and settings
 
 - `EXECUTION_ENABLED=false` is the kill switch: `/judge/languages` reports `execution_enabled: false` and `/run` answers `503` without starting a process.
-- `EXECUTION_PYTHON` and `EXECUTION_JAVASCRIPT` hide a language from the registry, which the workspace follows.
+- `EXECUTION_PYTHON`, `EXECUTION_JAVASCRIPT`, and `EXECUTION_JAVA` hide a language from the registry, which the workspace follows.
 - A problem's own `time_limit_ms` and `memory_limit_mb` are clamped to the model ceilings. The per-case time limit is additionally clamped to `MAX_JUDGE_WALL_CLOCK_MS`, the ceiling on one request's wall clock, so a request cannot multiply the problem's limit by its case count.
 
 ### What this is not
 
 This runner is safe against a learner's mistakes — an infinite loop, a runaway allocation, a crash, a flood of output — because those are the cases it is built and tested for. It is **not** a hardened boundary against a determined attacker: no container, no seccomp, no cgroup, no separate user, no network denial. Before accepting untrusted public input, run the worker inside a container or VM (or Windows Job Objects) with no network, a read-only filesystem, and a hard memory limit. On Windows today `RLIMIT_AS` and `RLIMIT_CPU` do not exist, so the memory ceiling is best-effort and `peak_memory_mb` is reported as `null` rather than guessed.
 
-`backend/tests/test_judge.py` covers all of this: 88 tests over real execution, timeouts, output caps, hidden-case non-leakage, budget arithmetic, catalog integrity against reference solutions, and the absence of any persistence.
+`backend/tests/test_judge.py` covers all of this: 223 tests over real execution, timeouts, output caps, hidden-case non-leakage, budget arithmetic, catalog integrity against reference solutions in Python, JavaScript, and Java, and the absence of any persistence. The integrity test alone judges all 136 reference solutions against every case their problem defines.
 
 ## Learner progress
 

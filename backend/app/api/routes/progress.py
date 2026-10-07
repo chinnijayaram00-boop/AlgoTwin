@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import CurrentUser, DbSession
 from backend.app.schemas.progress import (
+    MAX_PROGRESS_PAGE_SIZE,
     ProblemProgressListResponse,
     ProblemProgressResponse,
     ProgressSummaryResponse,
@@ -64,7 +65,15 @@ def list_my_progress(
     ),
     difficulty: str | None = Query(default=None, max_length=20),
     topic: str | None = Query(default=None, max_length=80),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=MAX_PROGRESS_PAGE_SIZE,
+        description=(
+            "Page size. Omit it to receive the whole published catalog; pass it "
+            "to paginate with `offset`."
+        ),
+    ),
     offset: int = Query(default=0, ge=0),
 ) -> ProblemProgressListResponse:
     """Every published problem annotated with the authenticated learner's status.
@@ -73,6 +82,12 @@ def list_my_progress(
     client can render a complete list from a single request. An unrecognised
     ``status`` is rejected with 422 rather than being coerced, because silently
     answering a different question than the one asked is worse than an error.
+
+    Pagination is opt-in rather than defaulted: omitting ``limit`` returns the
+    full catalog, so the list cannot silently drop problems once the catalog
+    outgrows a page size chosen when it was written. A caller that passes
+    ``limit`` gets a bounded page of at most
+    :data:`~backend.app.schemas.progress.MAX_PROGRESS_PAGE_SIZE`.
     """
     return progress_service.list_progress(
         db,

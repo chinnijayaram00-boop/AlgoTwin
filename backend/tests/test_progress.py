@@ -388,9 +388,81 @@ def test_list_reports_every_problem_with_its_status(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == CATALOG_SIZE
-    assert payload["limit"] == 50
+    # No page boundary was requested, so no page boundary is reported.
+    assert payload["limit"] is None
     assert payload["offset"] == 0
     assert {item["status"] for item in payload["items"]} == {"not_started", "solved"}
+
+
+def test_list_without_a_limit_returns_the_catalog_even_past_the_old_page_size(
+    client: TestClient, db_session: Session
+) -> None:
+    """Regression: the default used to be ``limit=50``.
+
+    At the time that default equalled the catalog size, so every unpaginated
+    client still saw everything and nothing looked broken. The first problem
+    added after that would have been dropped from every such client, silently.
+    The default is now "no page boundary", and this test grows the catalog past
+    the old number to prove the default keeps returning all of it.
+    """
+    headers = as_learner(client)
+    db_session.add(
+        Problem(
+            slug="beyond-the-old-page-limit",
+            title="Beyond the old page limit",
+            summary="A problem added after the page size was chosen.",
+            difficulty="Easy",
+            topics=["Arrays"],
+        )
+    )
+    db_session.commit()
+
+    payload = client.get(PROBLEMS, headers=headers).json()
+
+    assert payload["limit"] is None
+    assert payload["total"] == CATALOG_SIZE + 1
+    assert len(payload["items"]) == CATALOG_SIZE + 1
+    assert "beyond-the-old-page-limit" in {item["slug"] for item in payload["items"]}
+
+
+def test_list_still_pages_when_a_limit_is_requested(client: TestClient) -> None:
+    """A caller that asks for a page gets one, and the bound still holds."""
+    headers = as_learner(client)
+
+    first = client.get(PROBLEMS, params={"limit": 2, "offset": 0}, headers=headers).json()
+
+    assert first["limit"] == 2
+    assert first["offset"] == 0
+    assert len(first["items"]) == 2
+    assert first["total"] == CATALOG_SIZE
+
+
+def test_list_reports_more_than_one_page_when_the_catalog_exceeds_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """Paging stays coherent after the catalog outgrows a single page."""
+    headers = as_learner(client)
+    for index in range(CATALOG_SIZE + 1):
+        db_session.add(
+            Problem(
+                slug=f"paged-fixture-{index}",
+                title=f"Paged fixture {index:03d}",
+                summary="Fills the catalog so paging has more than one page.",
+                difficulty="Hard",
+                topics=["Arrays"],
+            )
+        )
+    db_session.commit()
+
+    first = client.get(PROBLEMS, params={"limit": 25, "offset": 0}, headers=headers).json()
+    last = client.get(
+        PROBLEMS, params={"limit": 25, "offset": first["total"]}, headers=headers
+    ).json()
+
+    assert first["limit"] == 25
+    assert first["total"] == CATALOG_SIZE + CATALOG_SIZE + 1
+    assert len(first["items"]) == 25
+    assert last["items"] == []
 
 
 def test_list_filters_by_status_difficulty_and_topic(client: TestClient) -> None:

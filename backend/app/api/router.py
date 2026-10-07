@@ -7,6 +7,7 @@ from backend.app.api.routes import (
     dashboard,
     health,
     judge,
+    learning_path,
     problems,
     progress,
     submissions,
@@ -17,6 +18,7 @@ api_router.include_router(health.router)
 api_router.include_router(problems.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(progress.router)
+api_router.include_router(learning_path.router)
 # Registered after `problems` because the judge and submission routers also serve
 # `/problems/{problem_id}/...`. The two cannot collide -- a path parameter does not
 # match across a `/` -- but keeping the longer, more specific feature grouped with

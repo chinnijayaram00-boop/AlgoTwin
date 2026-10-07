@@ -17,9 +17,16 @@ export function useProgressSummary({ enabled = true } = {}) {
   return useApiResource(request);
 }
 
-/** Every published problem annotated with the learner's status, with filters. */
+/**
+ * Every published problem annotated with the learner's status, with filters.
+ *
+ * No `limit` is sent by default: the API returns the whole published catalog
+ * when no page boundary is requested, so this list cannot silently truncate
+ * once the catalog outgrows a page size that was chosen when it was written.
+ * A caller that wants paging can pass `limit` and `offset` explicitly.
+ */
 export function useProgressList(params = {}, { enabled = true } = {}) {
-  const { status, difficulty, topic, limit = 50, offset = 0 } = params;
+  const { status, difficulty, topic, limit, offset } = params;
   const load = useCallback(
     () => progressService.problems({ status, difficulty, topic, limit, offset }),
     [status, difficulty, topic, limit, offset],

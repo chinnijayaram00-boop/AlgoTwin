@@ -19,6 +19,13 @@ MAX_RUNTIME_MS = 3_600_000
 MAX_MEMORY_MB = 65_536
 MAX_ATTEMPTS = 1_000_000
 
+#: Largest page a caller may *ask* for. Omitting ``limit`` is not a request for
+#: an unbound page -- it is a request for the whole published catalog, which is
+#: bounded by the catalog itself. This ceiling only guards a caller who
+#: explicitly asks for a slice, so a client that paginates stays bounded even
+#: after the catalog grows past it.
+MAX_PROGRESS_PAGE_SIZE = 100
+
 
 class ProgressUpdateRequest(BaseModel):
     """Body for the progress upsert.
@@ -57,10 +64,18 @@ class ProblemProgressResponse(BaseModel):
 
 
 class ProblemProgressListResponse(BaseModel):
+    """One page of the catalog, annotated for the requesting learner.
+
+    ``limit`` is ``null`` when the caller asked for no page boundary, which is
+    the default: the whole published catalog comes back, so a client that just
+    wants "everything" cannot be silently short-changed as the catalog grows.
+    A caller that did pass ``limit`` gets exactly the page it asked for.
+    """
+
     items: list[ProblemProgressResponse]
     total: int
-    limit: int
-    offset: int
+    limit: int | None = None
+    offset: int = 0
 
 
 class ProgressSummaryResponse(BaseModel):

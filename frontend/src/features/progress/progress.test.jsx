@@ -259,30 +259,33 @@ describe("useProgressList", () => {
     );
   }
 
-  it("requests the whole published catalog by default", async () => {
+  it("asks for no page boundary by default", async () => {
     progressService.problems.mockResolvedValue({
       items: [
         { problem_id: 1, title: "Two Sum", status: "attempted" },
         { problem_id: 2, title: "Coin Change", status: "not_started" },
       ],
       total: 2,
-      limit: 50,
+      limit: null,
       offset: 0,
     });
     renderInRouter(<ListProbe />);
 
     expect(await screen.findByText("Two Sum · attempted")).toBeInTheDocument();
+    // No `limit` is sent: the API answers with the whole published catalog when
+    // no page boundary is requested, so this list cannot silently truncate once
+    // the catalog outgrows a page size chosen when it was written.
     expect(progressService.problems).toHaveBeenCalledWith({
       status: undefined,
       difficulty: undefined,
       topic: undefined,
-      limit: 50,
-      offset: 0,
+      limit: undefined,
+      offset: undefined,
     });
   });
 
   it("passes the status and difficulty filters to the API", async () => {
-    progressService.problems.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    progressService.problems.mockResolvedValue({ items: [], total: 0, limit: null, offset: 0 });
     renderInRouter(<ListProbe params={{ status: "solved", difficulty: "Hard" }} />);
 
     await waitFor(() =>
@@ -290,8 +293,8 @@ describe("useProgressList", () => {
         status: "solved",
         difficulty: "Hard",
         topic: undefined,
-        limit: 50,
-        offset: 0,
+        limit: undefined,
+        offset: undefined,
       }),
     );
   });
