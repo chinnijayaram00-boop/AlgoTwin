@@ -1,5 +1,6 @@
 export const navigationItems = [
   { to: "/dashboard", label: "Overview", icon: "dashboard" },
+  { to: "/learning-path", label: "Learning Path", icon: "path" },
   { to: "/problems", label: "Problems", icon: "problems" },
   { to: "/submissions", label: "Submissions", icon: "submissions" },
   { to: "/visualizer", label: "Visualizer", icon: "visualizer" },

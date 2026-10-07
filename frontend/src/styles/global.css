@@ -3320,3 +3320,67 @@ button.submission-row:hover {
   }
 }
 
+
+/* Learning path ---------------------------------------------------------- */
+
+.path-topic-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.path-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px;
+  background: linear-gradient(145deg, rgba(21, 31, 53, 0.9), rgba(13, 20, 36, 0.85));
+  border: 1px solid rgba(124, 108, 255, 0.22);
+  border-radius: var(--radius-lg);
+}
+
+.path-next-copy {
+  min-width: 0;
+}
+
+.path-next-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.path-next h4 {
+  margin-top: 12px;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.path-next p {
+  margin-top: 7px;
+  max-width: 62ch;
+  color: var(--text-soft);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.path-next-compact {
+  padding: 16px;
+  border-radius: var(--radius-md);
+}
+
+.path-next-compact h4 {
+  margin-top: 10px;
+  font-size: 1rem;
+}
+
+@media (max-width: 700px) {
+  .path-next {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .path-next .button {
+    justify-content: center;
+  }
+}

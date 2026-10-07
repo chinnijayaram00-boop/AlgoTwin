@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ListChecks,
   MessagesSquare,
+  Route as RouteIcon,
   Settings2,
   Waypoints,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import BrandMark from "./BrandMark";
 
 const iconMap = {
   dashboard: LayoutDashboard,
+  path: RouteIcon,
   problems: ListChecks,
   submissions: FileCode2,
   visualizer: Waypoints,

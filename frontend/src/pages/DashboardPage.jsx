@@ -12,6 +12,8 @@ import { useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import ContinueLearningCard from "../features/learningPath/ContinueLearningCard";
+import { useLearningPath } from "../features/learningPath/useLearningPath";
 import ProgressPanel from "../features/progress/ProgressPanel";
 import { useProgressSummary } from "../features/progress/useProgress";
 import { useApiResource } from "../hooks/useApiResource";
@@ -34,6 +36,13 @@ export default function DashboardPage() {
     loading: progressLoading,
     reload: reloadProgress,
   } = useProgressSummary({ enabled: isAuthenticated });
+  const {
+    data: learningPath,
+    error: pathError,
+    errorStatus: pathErrorStatus,
+    loading: pathLoading,
+    reload: reloadPath,
+  } = useLearningPath({ enabled: isAuthenticated });
   const chartData = difficultyOrder.map((difficulty) => ({
     difficulty,
     problems: summary?.by_difficulty?.[difficulty] || 0,
@@ -106,6 +115,16 @@ export default function DashboardPage() {
           value={hasProgress ? progress.not_started : "—"}
         />
       </div>
+
+      {isAuthenticated ? (
+        <ContinueLearningCard
+          error={pathError}
+          errorStatus={pathErrorStatus}
+          loading={pathLoading}
+          onRetry={reloadPath}
+          path={learningPath}
+        />
+      ) : null}
 
       {loading ? <LoadingState label="Loading your catalog" /> : null}
       {error ? <ErrorState message={error} onRetry={reload} /> : null}

@@ -108,15 +108,17 @@ Verified on the current `main`:
 
 | Command | Result |
 | --- | --- |
-| `python -m pytest` | 683 passed |
+| `python -m pytest` | 720 passed |
 | `python -m ruff check backend database` | All checks passed |
 | `npm run lint:frontend` | 0 errors (2 pre-existing warnings) |
 | `npm run typecheck:frontend` | clean |
-| `npm run test:frontend` | 233 passed (13 files) |
+| `npm run test:frontend` | 255 passed (14 files) |
 | `npm run build:frontend` | succeeds, with the chunk-size warning noted below |
 | `git diff --check` | clean |
 
 `test_judge.py` is the slowest file (223 tests) because it actually executes code in every language the catalog advertises.
+
+The learning path endpoint was additionally exercised against a running API at `http://127.0.0.1:8123`: 33 checks covering authentication (401 with and without a token), curriculum stage order, one appearance per catalog problem, Easy-to-Hard ordering inside a stage, absence of any `user_id` in the response or accepted in the query string or body, two learners holding independent paths, a real `PUT /progress/problems/{id}` advancing the recommendation, and two consecutive reads returning byte-identical payloads.
 
 ## Database configuration
 
@@ -305,6 +307,54 @@ Frontend layout:
 Revision `b_progress_learner_tracking` follows the baseline and is additive: it adds the new columns, rewrites legacy status labels onto the new vocabulary, carries `completed_at` into `solved_at` and `best_time_ms` into `best_runtime_ms`, and creates the composite `(user_id, status)` index. It deletes no row and drops no column, and its `downgrade` is inert, so reversing it cannot destroy learner data.
 
 `AUTO_CREATE_TABLES=true` start-up applies the same shape through `ensure_progress_schema`, so a development database and a migrated database end up identical. The public catalog endpoints stay progress-free: the dashboard's catalog summary is public, and a caller's own progress is only ever available from the authenticated routes above.
+
+## Learning path
+
+`GET /api/v1/learning-path` returns the whole path in one authenticated read: twelve ordered stages, the caller's per-stage standing, the topics that need work, and a single recommended next problem with the reason it was picked. It is the only endpoint, it requires a bearer token, and it accepts no `user_id` in the path, query, or body — a caller cannot read anyone else's path by guessing an id.
+
+### How the next problem is chosen
+
+The engine is a pure function over two inputs: the published catalog and the caller's `Progress` rows. Nothing is stored per path, nothing is random, and the same inputs always produce the same answer.
+
+- **The stage comes from the curriculum, not from a score.** `CURRICULUM_ORDER` fixes twelve primary topics — Arrays, Strings, Stack, Linked Lists, Sorting, Binary Search, Heaps, Greedy, Trees, Graphs, Dynamic Programming, Bit Manipulation — and a problem's stage is decided by its `topics[0]`. The current stage is the first one with an unsolved problem; stages before it are `complete`, stages after it are `upcoming`. A topic the catalog does not use is appended alphabetically rather than dropped.
+- **The problem comes from a score, inside that stage only.** Candidate problems are the current stage's unsolved ones. The score is `prerequisite + started + attempts + difficulty + stage progress + topic weakness`, where an Easy is worth more than a Medium and a Medium more than a Hard, so the path walks Easy before Medium before Hard within a stage. Ranking is `min((-score, position, problem_id))`, which makes ties break the same way on every machine and independent of the order the rows came back in.
+- **The reason is the first rule that applies, in a fixed order:** `attempted_pending` (you started it, finish it), `first_step` (nothing solved yet), `next_difficulty` (the stage has begun and a harder problem is now due), `continue_stage` (the stage has begun, keep going), `prerequisite_met` (the previous stage is done, this one is open), `next_stage` (take on the following stage). Only these six codes exist, and the response cannot emit a code outside that vocabulary.
+- **A completed path recommends nothing.** When every published problem is solved, `recommendation` is `null` rather than a repetition of the last solved problem.
+
+Restricting candidates to the current stage is the point of the design: a global score would happily skip a half-finished medium-difficulty stage and jump to the first unsolved Easy two topics later, because an unstarted Easy always outscores a started Medium. The curriculum picks *where* you are; the score picks *what is next* there.
+
+`weak_topics` lists the primary topics that are started but not finished, ordered by outstanding problem count and then alphabetically, capped at six so the list stays a worklist rather than a table of contents.
+
+### Reading the response
+
+```text
+GET /api/v1/learning-path
+  -> CurrentUser (bearer token) -> DbSession
+  -> learning_path_service.load_learning_path
+       problems = published catalog, progress = caller's Progress rows
+       build_learning_path(problems, progress)   pure, deterministic
+  -> LearningPathResponse
+       total/solved/attempted_problems, completion_percentage
+       stages_total, stages_complete, current_stage_index, current_stage_title
+       weak_topics
+       recommendation { reason_code, reason, score, stage_index, stage_title, problem }
+       stages[] { index, key, title, state, prerequisite_title, prerequisite_ready,
+                  problem_count, solved_count, attempted_count,
+                  completion_percentage, problems[] }
+```
+
+Each stage's `key` is a lowercase, url-safe slug of its title. Every published problem appears in exactly one stage, in Easy-to-Hard order, so the response is a complete partition of the catalog — a client can render the entire path without a second request.
+
+### Frontend
+
+- `/learning-path` renders the path behind the same `ProtectedRoute` as the rest of the workspace, with a nav entry in the sidebar.
+- The page shows overall completion, the current stage, stages complete, the weak topics, the recommendation with its reason, the current stage's problems as the usual `ProblemCard`s, and the full stage list with each stage's state.
+- The dashboard carries a `ContinueLearningCard` with the same recommendation, so the path is reachable from the first screen.
+- `frontend/src/features/learningPath/learningPathService.js` is the one call, `useLearningPath.js` wraps it in the shared `useApiResource` loading/error shape, and a `401` is rendered as a sign-in prompt rather than a generic failure.
+
+### What the learning path is not
+
+It does not reorder the catalog, invent problems, or decide what counts as solved — `Progress` stays the single source of truth, and an accepted submission moves it through `progress_service.set_status` exactly as before. The path holds no state of its own, so there is nothing to migrate and nothing to go stale.
 
 ## Project conventions
 

@@ -9,6 +9,7 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ComparePage from "./pages/ComparePage";
 import DashboardPage from "./pages/DashboardPage";
 import InterviewsPage from "./pages/InterviewsPage";
+import LearningPathPage from "./pages/LearningPathPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProblemsPage from "./pages/ProblemsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -44,6 +45,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="learning-path" element={<LearningPathPage />} />
         <Route path="problems" element={<ProblemsPage />} />
         <Route path="problems/:slug" element={<WorkspacePage />} />
         <Route path="submissions" element={<SubmissionsPage />} />

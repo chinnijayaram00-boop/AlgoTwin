@@ -1,33 +1,37 @@
 # Implementation status
 
-Checkpoint written against branch `main` at `cbdd1ef [origin/main]`, working tree
-clean. It records what the repository contains now, not a roadmap.
+Checkpoint written against branch `main`. The last commits are
+`ef9fb5b daily contribution` and `852ece3 feat: implement learning path progress`;
+the Learning Path frontend wiring (route, navigation, dashboard card, styles) and
+its test file are still uncommitted in the working tree. It records what the
+repository contains now, not a roadmap.
 
 ## Verified commands
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Backend tests | `python -m pytest` | 683 passed, 8 warnings (181–270s depending on machine load) |
+| Backend tests | `python -m pytest` | 720 passed, 8 warnings (181–276s depending on machine load) |
 | Backend lint | `python -m ruff check backend database` | All checks passed |
-| Frontend tests | `npm run test:frontend` | 233 passed (13 files) |
+| Frontend tests | `npm run test:frontend` | 255 passed (14 files) |
 | Frontend lint | `npm run lint:frontend` | 0 errors, 2 warnings |
 | Frontend typecheck | `npm run typecheck:frontend` | clean |
 | Frontend build | `npm run build:frontend` | succeeds (chunk-size warning) |
 | Whitespace | `git diff --check` | clean |
 
-The judge and the judged-submission path account for 343 of the 683 backend
+The judge and the judged-submission path account for 343 of the 720 backend
 tests (`test_judge.py` 223, `test_submissions.py` 120); AI and visualization
 account for a further 169 (`test_ai.py` 121, `test_visualization.py` 48); the
-rest are auth, catalog, progress, migration, and platform suites.
+rest are auth, catalog, progress, learning path, migration, and platform suites.
 
 | Suite | Tests |
 | --- | --- |
 | `test_judge.py` | 223 |
 | `test_ai.py` | 121 |
 | `test_submissions.py` | 120 |
-| `test_progress.py` | 71 |
+| `test_progress.py` | 74 |
 | `test_auth.py` | 57 |
 | `test_visualization.py` | 48 |
+| `test_learning_path.py` | 34 |
 | `test_migrations.py` | 19 |
 | `test_schema.py` | 10 |
 | `test_platform.py` | 6 |
@@ -38,8 +42,15 @@ The two frontend lint warnings are pre-existing `react-refresh/only-export-compo
 notes in `InsightBody.jsx` and `FrameRenderer.jsx`; they are warnings, not errors,
 and ESLint exits 0.
 
-No browser or live API verification has been done for this work. Every result
-above comes from automated tests.
+Beyond automated tests, the Learning Path endpoint was exercised against a
+running API on `http://127.0.0.1:8123` with 33 checks: `401` with no token and
+with a forged token, `200` with a real one; the twelve stages in curriculum
+order; all 50 problems present exactly once; Easy-to-Hard non-decreasing inside
+every stage; no `user_id` in the response and no way to supply one in the query
+string or body; no hidden test material in the response; two registered learners
+holding independent paths; a real `PUT /progress/problems/{id}` moving the caller's
+recommendation while the other learner's path stayed byte-identical; and two
+consecutive reads returning identical payloads.
 
 ## Complete
 
@@ -55,6 +66,11 @@ served from a seeded catalog of 50 judge-ready problems — 10 Easy, 27 Medium,
 `GET|PUT /progress/problems/{problem_id}`,
 `POST /progress/problems/{problem_id}/attempt` — scoped to the signed-in learner,
 idempotent on write, with legacy labels still readable.
+
+**Learning path.** `GET /learning-path` returns the caller's twelve ordered
+stages, per-stage counts, weak topics, and one recommended next problem with a
+reason code. Scoped to the signed-in learner by `get_current_user`, with no
+`user_id` accepted anywhere. Described below.
 
 **Judged submissions.** `GET|POST /submissions`, `GET /submissions/{submission_id}`,
 and `GET /problems/{problem_id}/submissions`. `POST` runs the judge synchronously
@@ -177,6 +193,60 @@ than guessing. A `queued` row is also what a submit leaves behind if execution
 is switched off mid-request (a 503); the switch being off before the request
 starts is a 422 and stores nothing.
 
+## Learning path
+
+One authenticated endpoint, `GET /api/v1/learning-path`, served by
+`backend/app/api/routes/learning_path.py` and built by
+`backend/app/services/learning_path_service.py`. It is registered after the
+progress router in `backend/app/api/router.py` and described by
+`backend/app/schemas/learning_path.py`.
+
+**Determinism.** `build_learning_path(problems, progress_by_problem)` is a pure
+function of the published catalog and the caller's `Progress` rows. It stores
+nothing per path, so there is no path table, no migration, and nothing to go
+stale. Two reads of the same state return identical payloads, which the live
+check confirmed byte for byte.
+
+**Stage selection.** `CURRICULUM_ORDER` fixes twelve primary topics in teaching
+order — Arrays, Strings, Stack, Linked Lists, Sorting, Binary Search, Heaps,
+Greedy, Trees, Graphs, Dynamic Programming, Bit Manipulation — and a problem's
+stage is its `topics[0]`. The current stage is the first with an unsolved
+problem; earlier stages are `complete`, later ones `upcoming`, so the invariant
+"stages before the current one are complete, stages after it are upcoming, and
+the recommendation sits in the current one" holds by construction. A primary
+topic the curriculum does not name is appended alphabetically instead of being
+dropped, and an unknown difficulty ranks last rather than first.
+
+**Problem selection.** Candidates are the current stage's unsolved problems
+only. The score is `prerequisite + started + attempts + difficulty + stage
+progress + topic weakness`, with Easy above Medium above Hard; ranking is
+`min((-score, position, problem_id))`. Restricting candidates to the current
+stage is deliberate: a global score would always prefer an unstarted Easy two
+topics later over a started Medium here, so the path would jump stages instead
+of finishing them.
+
+**Reason codes.** Exactly six: `first_step`, `attempted_pending`,
+`next_difficulty`, `continue_stage`, `prerequisite_met`, `next_stage`. The
+first matching rule wins, and every one of them is reachable — the test suite
+asserts the vocabulary and the live check produced `first_step` and
+`next_difficulty` from real progress. `recommendation` is `null` once every
+published problem is solved.
+
+**Isolation.** The route takes `CurrentUser` and `DbSession` and no identity
+parameter of any kind. The live check confirmed that `?user_id=1` and a body
+containing `user_id` are both ignored, that one learner's solve leaves the
+other learner's payload untouched, and that no `user_id`, email, or hidden test
+material appears anywhere in the response.
+
+**Frontend.** `/learning-path` sits inside `ProtectedRoute` in `App.jsx`, has a
+sidebar entry keyed `path` in `navigation.js` and `Sidebar.jsx`, and renders in
+`pages/LearningPathPage.jsx` from `features/learningPath/learningPathService.js`
+and `useLearningPath.js`. The dashboard card is
+`features/learningPath/ContinueLearningCard.jsx`. A `401` is shown as a
+sign-in prompt, not a generic error. The response is partitioned — every
+published problem appears in exactly one stage — so the page renders the whole
+path from the single request.
+
 ## Known limits, stated plainly
 
 - **Not a hardened sandbox.** The runner contains the failure modes it is built
@@ -227,7 +297,7 @@ visualization, comparison — executes and is covered by the tests below.
 
 ## Test suites
 
-Backend (683 tests):
+Backend (720 tests):
 
 - `test_judge.py` (223) — the runner, its limits, its honesty guarantees, and
   the catalog integrity sweep that judges every reference solution against every
@@ -236,25 +306,33 @@ Backend (683 tests):
   endpoint response carries hidden test data
 - `test_submissions.py` (120) — judged submissions, each verdict, and their
   boundaries
-- `test_progress.py` (71) — progress semantics and migration behavior
+- `test_progress.py` (74) — progress semantics, migration behavior, and that the
+  client's list request carries no default page boundary
 - `test_auth.py` (57) — auth, password policy, tokens, and that `password_hash`
   never reaches the OpenAPI contract
 - `test_visualization.py` (48) — the algorithm registry, grammar, frame
   generation, and comparison
+- `test_learning_path.py` (34) — stage order, difficulty order, reason
+  vocabulary, determinism, user isolation, no identity in the contract, no test
+  data in the response, and the pure builder's edge cases
 - `test_migrations.py` (19) — Alembic upgrade and downgrade behavior
 - `test_schema.py` (10) — model and constraint shape
 - `test_platform.py` (6) — health, readiness, CORS, and app wiring
 - `test_problems.py` (6) — catalog endpoints and problem projection
 - `test_health.py` (2) — liveness and readiness
 
-Frontend (233 tests across 13 files):
+Frontend (255 tests across 14 files):
 
 - `features/judge/judge.test.jsx` — result presentation, language discovery, and
   the workspace run affordance
 - `features/submissions/submissions.test.jsx` — verdict presentation, the
   verdict filter, and the submit flow
-- `features/progress/progress.test.jsx` — progress semantics and the claim about
-  what sets a problem solved
+- `features/progress/progress.test.jsx` — progress semantics, the claim about
+  what sets a problem solved, and the unbounded list request
+- `features/learningPath/learningPath.test.jsx` — the service's request shape,
+  the hook's enabled/error states, the page's metrics, stage list, current-stage
+  grid, weak topics, sign-in prompt, and retry, the dashboard card, and the
+  navigation entry
 - `features/visualization/visualization.test.jsx` — trace frames, timeline
   controls, and comparison
 - `features/auth/*` — the login and register flows, session restoration, and
