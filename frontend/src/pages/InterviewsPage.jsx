@@ -62,10 +62,15 @@ export default function InterviewsPage() {
   const reportInterviewId = reportId ?? (sessionCompleted ? interviews.session.id : null);
   const report = useInterviewReport(reportInterviewId, { enabled: reportInterviewId != null });
 
+  // A stable identity for the callbacks below: the hook's own reload is a
+  // memoized load of the active session, while the hook's object is fresh on
+  // every render.
+  const reloadInterview = interviews.reload;
+
   const handleStartAnother = useCallback(async () => {
     setReportId(null);
-    await interviews.reload();
-  }, [interviews.reload]);
+    await reloadInterview();
+  }, [reloadInterview]);
 
   const handleCloseReport = useCallback(() => setReportId(null), []);
   const handleOpenReport = useCallback((interviewId) => setReportId(interviewId), []);
@@ -76,8 +81,8 @@ export default function InterviewsPage() {
   // returns (usually a completed, timed-out session).
   const handleExpire = useCallback(() => {
     setReportId(null);
-    interviews.reload();
-  }, [interviews.reload]);
+    reloadInterview();
+  }, [reloadInterview]);
 
   if (interviews.loading) {
     return (

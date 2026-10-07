@@ -328,9 +328,11 @@ describe("InterviewsPage", () => {
   });
 
   it("finishing a session opens the report built from the report endpoint", async () => {
-    apiClient.get.mockImplementation((path) =>
-      path === "/interviews/41/report" ? Promise.resolve(REPORT) : Promise.resolve(EMPTY_HISTORY),
-    );
+    apiClient.get.mockImplementation((path) => {
+      if (path.startsWith("/interviews/41/report")) return Promise.resolve(REPORT);
+      if (path.startsWith("/interviews?")) return Promise.resolve(EMPTY_HISTORY);
+      return Promise.reject(notFound("No active interview."));
+    });
     apiClient.post.mockImplementation((path) => {
       if (path === "/interviews/41/start") return Promise.resolve(SESSION_RUNNING);
       if (path === "/interviews/41/finish") return Promise.resolve(SESSION_COMPLETED);
@@ -352,7 +354,7 @@ describe("InterviewsPage", () => {
 
   it("abandoning a session returns to setup and refreshes the history", async () => {
     apiClient.get.mockImplementation((path) =>
-      path === "/interviews" ? Promise.resolve(HISTORY) : Promise.reject(notFound("No active interview.")),
+      path.startsWith("/interviews?") ? Promise.resolve(HISTORY) : Promise.reject(notFound("No active interview.")),
     );
     apiClient.post.mockImplementation((path) => {
       if (path === "/interviews/41/abandon") return Promise.resolve(SESSION_ABANDONED);
@@ -371,7 +373,7 @@ describe("InterviewsPage", () => {
 
   it("opens a completed interview's report from the history rows", async () => {
     apiClient.get.mockImplementation((path) => {
-      if (path === "/interviews") return Promise.resolve(HISTORY);
+      if (path.startsWith("/interviews?")) return Promise.resolve(HISTORY);
       if (path.startsWith("/interviews/42/report")) return Promise.resolve({ ...REPORT, id: 42, score: 100 });
       return Promise.reject(notFound("No active interview."));
     });
