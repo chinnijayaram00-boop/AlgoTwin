@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from backend.app.api.routes import (
     ai,
     algorithms,
+    analytics,
     auth,
     dashboard,
     health,
@@ -18,6 +19,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(problems.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(analytics.router)
 api_router.include_router(progress.router)
 api_router.include_router(learning_path.router)
 # Registered after `problems` because the judge and submission routers also serve
