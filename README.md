@@ -364,3 +364,6 @@ It does not reorder the catalog, invent problems, or decide what counts as solve
 - Hash passwords through `backend/app/core/security.py`; never store or log plaintext credentials.
 - Never execute user-submitted code in the API process. Execution belongs to `backend/app/judge`, and a worker must be started from a deployment that provides a real OS-level boundary.
 - Never log or return `AI_API_KEY`, `JWT_SECRET_KEY`, or other credentials.
+
+## Project Status
+Analytics and Performance Intelligence implemented and verified.
