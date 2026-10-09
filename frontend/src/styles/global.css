@@ -3005,6 +3005,195 @@ button.submission-row:hover {
   margin-top: 1px;
 }
 
+/* ==========================================================================
+   The personalized coach
+   ========================================================================== */
+
+/* One explained signal. The claim, the sentence behind it, and the measurement
+   it reduces to, stacked so the evidence can be checked without leaving the row. */
+.signal-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal-item + .signal-item {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.signal-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.signal-heading strong {
+  color: var(--text);
+  font-size: 0.79rem;
+  font-weight: 700;
+}
+
+.signal-item p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.signal-evidence {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.signal-evidence.violet {
+  color: #d1cbff;
+  background: var(--primary-soft);
+  border-color: rgba(124, 108, 255, 0.24);
+}
+
+.signal-evidence.medium {
+  color: #ffd99c;
+  background: var(--amber-soft);
+  border-color: rgba(244, 189, 106, 0.22);
+}
+
+/* Suggested next problems. The first row is the path's own recommendation and
+   carries the only filled action, so "start here" is legible at a glance. */
+.coach-recommendations {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coach-recommendation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  background: rgba(141, 154, 181, 0.04);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.coach-recommendation-copy {
+  min-width: 0;
+}
+
+.coach-recommendation-copy strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.coach-recommendation-copy p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.coach-recommendation-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.coach-recommendation .button {
+  flex: none;
+}
+
+.focus-areas {
+  display: grid;
+  gap: 14px;
+}
+
+.focus-area-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.focus-area-top strong {
+  color: var(--text);
+  font-size: 0.77rem;
+}
+
+.focus-area-top span {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+/* The ask-anything panel: focus chips, the action, and whatever came back. */
+.coach-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.coach-focus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.coach-focus .button {
+  padding: 6px 12px;
+  font-size: 0.72rem;
+}
+
+.coach-ask {
+  justify-self: start;
+}
+
+.coach-idle-note,
+.coach-footnote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.71rem;
+  line-height: 1.55;
+}
+
+.coach-idle-note svg,
+.coach-footnote svg {
+  flex: none;
+}
+
+.coach-fallback-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(244, 189, 106, 0.22);
+  border-radius: var(--radius-sm);
+  font-size: 0.71rem;
+  line-height: 1.55;
+}
+
+.coach-fallback-notice svg {
+  flex: none;
+  margin-top: 1px;
+}
+
 .submission-diagnosis {
   margin-top: 20px;
   padding-top: 18px;

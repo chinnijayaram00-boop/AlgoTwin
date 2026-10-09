@@ -12,6 +12,7 @@ import InterviewsPage from "./pages/InterviewsPage";
 import LearningPathPage from "./pages/LearningPathPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProblemsPage from "./pages/ProblemsPage";
+import PersonalizationPage from "./pages/PersonalizationPage";
 import SettingsPage from "./pages/SettingsPage";
 import SubmissionsPage from "./pages/SubmissionsPage";
 import VisualizerPage from "./pages/VisualizerPage";
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="compare" element={<ComparePage />} />
         <Route path="interviews" element={<InterviewsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="coach" element={<PersonalizationPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

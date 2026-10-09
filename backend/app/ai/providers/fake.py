@@ -25,6 +25,7 @@ from __future__ import annotations
 from backend.app.ai.errors import AIProviderError, AIProviderTimeoutError
 from backend.app.ai.provider import (
     KIND_CODE_COMPLEXITY,
+    KIND_MENTOR_GUIDANCE,
     KIND_PROBLEM_EXPLANATION,
     KIND_SUBMISSION_DIAGNOSIS,
     AICompletionRequest,
@@ -77,6 +78,23 @@ The grounding context for this request is the one the response lists under
 `grounding`, and nothing else was sent.
 """
 
+_MENTOR_TEMPLATE = """## Your next step
+
+{fake_notice}
+
+This coaching was produced by the deterministic `fake` provider, not by a \
+language model. The real provider is given only the learner's recorded profile -- \
+counts of solved and attempted problems, the acceptance rate over judged \
+submissions, the streak, the derived strengths and weaknesses, the focus areas, \
+and the problem the learning path already recommends.
+
+## What it would never be given
+
+- any test case's input, expected output, or the program's output on it;
+- the learner's source code, which is never part of a profile;
+- any other learner's progress, submissions, or identity.
+"""
+
 _COMPLEXITY_O_N_LOG_N = """{
   "time_complexity": "O(n log n)",
   "space_complexity": "O(n)",
@@ -116,6 +134,10 @@ def _complexity_text(request: AICompletionRequest) -> str:
     if "while" in request.user or "for" in request.user:
         return _COMPLEXITY_O_N_LOG_N
     return _COMPLEXITY_UNDETERMINED
+
+
+def _mentor_text() -> str:
+    return _MENTOR_TEMPLATE.format(fake_notice=_FAKE_NOTICE)
 
 
 class FakeAIProvider:
@@ -161,6 +183,8 @@ class FakeAIProvider:
             text = self.responses.get(request.kind) or _diagnosis_text()
         elif request.kind == KIND_PROBLEM_EXPLANATION:
             text = self.responses.get(request.kind) or _explanation_text()
+        elif request.kind == KIND_MENTOR_GUIDANCE:
+            text = self.responses.get(request.kind) or _mentor_text()
         else:
             # An unknown kind is a programming error in the service, not a
             # provider problem, and answering anyway would store a mislabelled

@@ -7,6 +7,7 @@ export const navigationItems = [
   { to: "/compare", label: "Compare", icon: "compare" },
   { to: "/interviews", label: "Interviews", icon: "interviews" },
   { to: "/analytics", label: "Analytics", icon: "analytics" },
+  { to: "/coach", label: "AI Coach", icon: "coach" },
 ];
 
 export const settingsItems = [{ to: "/settings", label: "Settings", icon: "settings" }];

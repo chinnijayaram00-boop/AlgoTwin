@@ -40,6 +40,14 @@ KIND_PROBLEM_EXPLANATION = "problem_explanation"
 KIND_SUBMISSION_DIAGNOSIS = "submission_diagnosis"
 KIND_CODE_COMPLEXITY = "code_complexity"
 
+#: The kind of a personalized mentor-guidance request. It is deliberately *not*
+#: a member of :data:`AI_INSIGHT_KINDS`: that tuple is the persisted
+#: ``ai_insights.kind`` vocabulary, and mentor guidance is derived fresh from the
+#: learner's current profile on every request rather than stored as an insight.
+#: Keeping it out of the tuple is what keeps the persisted vocabulary and the
+#: database CHECK constraint in step.
+KIND_MENTOR_GUIDANCE = "mentor_guidance"
+
 AI_INSIGHT_KINDS: tuple[str, ...] = (
     KIND_PROBLEM_EXPLANATION,
     KIND_SUBMISSION_DIAGNOSIS,
@@ -123,6 +131,7 @@ class AIProvider(Protocol):
 __all__ = [
     "AI_INSIGHT_KINDS",
     "KIND_CODE_COMPLEXITY",
+    "KIND_MENTOR_GUIDANCE",
     "KIND_PROBLEM_EXPLANATION",
     "KIND_SUBMISSION_DIAGNOSIS",
     "AICompletionRequest",

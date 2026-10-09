@@ -33,6 +33,7 @@ from typing import Any
 
 from backend.app.ai.provider import (
     KIND_CODE_COMPLEXITY,
+    KIND_MENTOR_GUIDANCE,
     KIND_PROBLEM_EXPLANATION,
     KIND_SUBMISSION_DIAGNOSIS,
 )
@@ -88,6 +89,15 @@ before or after it -- with exactly these keys:
 If the program has no loops, no recursion, and no data-dependent iteration, use \
 "time_complexity": "undetermined" and say so in the reasoning rather than guessing a \
 bound from the input size."""
+
+_MENTOR_SYSTEM = f"""{_BASE_SYSTEM_RULES}
+
+For this request, you are coaching a learner on how to continue their practice, \
+working only from the profile of their recorded activity given below. This is \
+coaching, not grading: be concrete and encouraging, and tie every suggestion to a \
+fact in the profile. Do not invent progress the profile does not show, do not \
+describe problems the learner has not been recommended, and do not claim to have \
+watched them work."""
 
 _FOCUS_NOTES: dict[str, str] = {
     "approach": (
@@ -377,6 +387,82 @@ def render_complexity_prompt(
     )
 
 
+def render_mentor_prompt(
+    *,
+    profile: dict[str, Any],
+    focus: str | None,
+    provider: str,
+    model: str,
+) -> RenderedPrompt:
+    """The prompt for personalized mentor guidance.
+
+    The learner message is the recorded profile and nothing else: counts the
+    platform already stores, the signals derived from them, and the problem the
+    learning path already recommends. No test case, no expected output, no
+    program output, and no reference solution reaches it, because none is ever
+    placed in ``profile`` -- see
+    :func:`backend.app.services.personalization_service.mentor_facts`.
+
+    ``focus`` selects an emphasis by naming it in the message. It is written as
+    a plain label rather than interpolated as free text, so a caller cannot add
+    an instruction through it.
+    """
+    strengths = profile.get("strengths") or []
+    weaknesses = profile.get("weaknesses") or []
+    focus_areas = profile.get("focus_areas") or []
+
+    lines: list[str] = [
+        f"Focus requested: {focus or 'overview'}",
+        "",
+        "THE LEARNER'S RECORDED PROFILE",
+        f"  problems solved:      {profile.get('solved')} of {profile.get('total_problems')}"
+        f" ({profile.get('completion_percentage')}%)",
+        f"  attempted, unsolved:  {profile.get('attempted')}",
+        f"  not started:          {profile.get('not_started')}",
+        f"  current streak:       {profile.get('current_streak_days')} day(s)",
+        f"  submissions:          {profile.get('total_submissions')} total, "
+        f"{profile.get('judged_submissions')} judged, "
+        f"{profile.get('accepted_submissions')} accepted"
+        f" ({profile.get('acceptance_rate')}% accepted)",
+        f"  mock interviews:      {profile.get('interviews_completed')} completed",
+    ]
+
+    lines += [
+        "",
+        "RECORDED STRENGTHS: "
+        + (", ".join(strengths) if strengths else "(none recorded yet)"),
+        "RECORDED WEAKNESSES: "
+        + (", ".join(weaknesses) if weaknesses else "(none recorded yet)"),
+        "FOCUS AREAS: "
+        + (", ".join(focus_areas) if focus_areas else "(none recorded yet)"),
+    ]
+
+    if profile.get("recommended_problem"):
+        lines += [
+            "",
+            "THE PLATFORM'S CURRENT RECOMMENDATION: "
+            f"{profile['recommended_problem']} -- {profile.get('recommended_reason') or 'no reason recorded'}",
+        ]
+
+    lines += [
+        "",
+        "Coach the learner on what to do next, centring on the requested focus.",
+    ]
+
+    grounding = {**profile, "focus": focus}
+
+    return _finalise(
+        RenderedPrompt(
+            kind=KIND_MENTOR_GUIDANCE,
+            system=_MENTOR_SYSTEM,
+            user="\n".join(lines),
+            grounding=grounding,
+        ),
+        provider,
+        model,
+    )
+
+
 def _measurement(value: Any, unit: str) -> str:
     """Render an optional measurement, distinguishing "absent" from zero."""
     if value is None:
@@ -390,4 +476,5 @@ __all__ = [
     "render_complexity_prompt",
     "render_diagnosis_prompt",
     "render_explanation_prompt",
+    "render_mentor_prompt",
 ]

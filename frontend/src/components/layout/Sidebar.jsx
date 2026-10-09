@@ -7,6 +7,7 @@ import {
   MessagesSquare,
   Route as RouteIcon,
   Settings2,
+  Sparkles,
   Waypoints,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -23,6 +24,7 @@ const iconMap = {
   compare: GitCompareArrows,
   interviews: MessagesSquare,
   analytics: BarChart3,
+  coach: Sparkles,
   settings: Settings2,
 };
 

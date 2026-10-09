@@ -10,6 +10,7 @@ from backend.app.api.routes import (
     interviews,
     judge,
     learning_path,
+    personalization,
     problems,
     progress,
     submissions,
@@ -22,6 +23,7 @@ api_router.include_router(dashboard.router)
 api_router.include_router(analytics.router)
 api_router.include_router(progress.router)
 api_router.include_router(learning_path.router)
+api_router.include_router(personalization.router)
 # Registered after `problems` because the judge and submission routers also serve
 # `/problems/{problem_id}/...`. The two cannot collide -- a path parameter does not
 # match across a `/` -- but keeping the longer, more specific feature grouped with

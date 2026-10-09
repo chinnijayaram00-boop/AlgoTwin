@@ -196,6 +196,9 @@ export default function DashboardPage() {
             <Link className="button button-secondary" to="/problems?status=solved">
               Review solved problems <ArrowRight size={16} />
             </Link>
+            <Link className="button button-secondary" to="/coach">
+              Ask your AI coach <ArrowRight size={16} />
+            </Link>
           </div>
         </SectionCard>
       </div>
