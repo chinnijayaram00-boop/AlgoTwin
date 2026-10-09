@@ -121,14 +121,21 @@ function renderInRouter(ui) {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
 }
 
-function renderWorkspace() {
-  return render(
+async function renderWorkspace() {
+  const view = render(
     <MemoryRouter initialEntries={["/problems/two-sum"]}>
       <Routes>
         <Route element={<WorkspacePage />} path="/problems/:slug" />
       </Routes>
     </MemoryRouter>,
   );
+  // The problem loads asynchronously and the starter code is applied by an
+  // effect after that render. Wait for the editor to hold the starter code
+  // before a test clears or types, otherwise the interaction can race that
+  // initial write and leave the editor holding the starter code plus the
+  // typed text (or an empty editor the test never cleared).
+  await screen.findByDisplayValue("function solve() {}");
+  return view;
 }
 
 beforeEach(() => {
@@ -690,7 +697,7 @@ describe("the workspace submit area", () => {
   });
 
   it("offers a real Run affordance, and reports nothing before anything has run", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     const run = await screen.findByRole("button", { name: /run test cases/i });
     expect(run).toBeEnabled();
@@ -701,7 +708,7 @@ describe("the workspace submit area", () => {
   });
 
   it("cannot run an editor that holds no code", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     const editor = await screen.findByLabelText(/code editor/i);
     await userEvent.clear(editor);
@@ -711,19 +718,19 @@ describe("the workspace submit area", () => {
 
   it("cannot run without a session", async () => {
     useAuth.mockReturnValue({ isAuthenticated: false });
-    renderWorkspace();
+    await renderWorkspace();
 
     expect(await screen.findByRole("button", { name: /run test cases/i })).toBeDisabled();
   });
 
   it("states that submitting is graded, including on the hidden cases", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     expect(await screen.findAllByText(/hidden ones included/i)).not.toHaveLength(0);
   });
 
   it("submits the editor's code and shows the verdict the judge returned", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     const editor = await screen.findByLabelText(/code editor/i);
     await userEvent.clear(editor);
@@ -745,7 +752,7 @@ describe("the workspace submit area", () => {
   });
 
   it("submits in whichever language tab is selected", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     await userEvent.click(await screen.findByRole("tab", { name: /python/i }));
     await userEvent.click(screen.getByRole("button", { name: /submit solution/i }));
@@ -758,7 +765,7 @@ describe("the workspace submit area", () => {
   });
 
   it("cannot submit an editor that holds no code", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     const editor = await screen.findByLabelText(/code editor/i);
     await userEvent.clear(editor);
@@ -767,7 +774,7 @@ describe("the workspace submit area", () => {
   });
 
   it("leaves the progress write to the API, because only an accept can solve", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     await screen.findByLabelText(/code editor/i);
     await userEvent.click(screen.getByRole("button", { name: /submit solution/i }));
@@ -779,7 +786,7 @@ describe("the workspace submit area", () => {
   });
 
   it("refreshes the progress panel after a submit, because the API owns progress", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     await userEvent.click(await screen.findByRole("button", { name: /submit solution/i }));
 
@@ -787,7 +794,7 @@ describe("the workspace submit area", () => {
   });
 
   it("refreshes the submission list after a submit, so the panel matches the API", async () => {
-    renderWorkspace();
+    await renderWorkspace();
 
     await userEvent.click(await screen.findByRole("button", { name: /submit solution/i }));
 
@@ -798,7 +805,7 @@ describe("the workspace submit area", () => {
 
   it("reports a failed submit without claiming a verdict was given", async () => {
     submissionService.create.mockRejectedValue(new Error("The API request timed out."));
-    renderWorkspace();
+    await renderWorkspace();
 
     await userEvent.click(await screen.findByRole("button", { name: /submit solution/i }));
 
