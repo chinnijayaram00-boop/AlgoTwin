@@ -36,10 +36,10 @@ jobs:
       # asserts the exact string.
       APP_NAME: ALgotwin API
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -50,12 +50,12 @@ jobs:
       # JDK (with `javac`) for Java. Tests for an absent interpreter skip rather
       # than fail, but installing them keeps CI equivalent to a full local run.
       - name: Set up Node.js for the judge (JavaScript)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
 
       - name: Set up JDK for the judge (Java)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -78,11 +78,19 @@ jobs:
     name: Frontend (lint, typecheck, test, build)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # `frontend/.env` is gitignored, so the API base URL is supplied here rather
+    # than read from a committed file. Two steps need it: Vitest, because the
+    # tests import `frontend/src/lib/env.js` and that module deliberately throws
+    # when the variable is missing, and the production build, because Vite inlines
+    # the value at bundle time. It is a non-secret placeholder: CI proves the suite
+    # runs and the bundle builds, it does not call a live API.
+    env:
+      VITE_API_URL: http://127.0.0.1:8001/api/v1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -100,11 +108,5 @@ jobs:
       - name: Test
         run: npm run test:frontend
 
-      # `frontend/.env` is gitignored, so the API base URL the app inlines at
-      # build time is supplied here rather than read from a committed file. The
-      # value is illustrative: CI validates that the production bundle builds,
-      # it does not run the app against a live API.
       - name: Build
         run: npm run build:frontend
-        env:
-          VITE_API_URL: http://127.0.0.1:8001/api/v1
