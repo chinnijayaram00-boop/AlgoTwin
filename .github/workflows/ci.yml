@@ -1,0 +1,110 @@
+name: CI
+
+# Runs the same checks a developer runs locally, on every push to `main` and on
+# every pull request. The two jobs are independent, so a backend failure does not
+# hide a frontend result. Nothing here needs a production secret: the suite
+# provisions its own throwaway databases and a throwaway JWT secret.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push to a branch cancels the run it supersedes, so a busy branch does not
+# queue stale jobs that are already known to be outdated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only. CI never writes to the repository, so it is granted nothing beyond
+# checking the code out.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Ruff, pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A throwaway signing key for the test run, not a credential. The API
+      # refuses to issue tokens without one; `backend/tests/conftest.py` would
+      # otherwise generate a random one, and pinning it here keeps the run
+      # deterministic. It signs only tokens minted during this job.
+      JWT_SECRET_KEY: ci-only-throwaway-signing-key-not-a-secret
+      # `/api/v1/health` reports the configured service name, and the suite
+      # asserts the exact string.
+      APP_NAME: ALgotwin API
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # The judge executes the reference solutions it ships, so the runner needs
+      # the same interpreters the catalog advertises: Node for JavaScript and a
+      # JDK (with `javac`) for Java. Tests for an absent interpreter skip rather
+      # than fail, but installing them keeps CI equivalent to a full local run.
+      - name: Set up Node.js for the judge (JavaScript)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up JDK for the judge (Java)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Ruff lint and import check
+        run: python -m ruff check backend database
+
+      # No `DATABASE_URL` and no `.env`: the fixtures build private in-memory
+      # SQLite databases and the migration tests run Alembic against `tmp_path`,
+      # so the run never touches a real database or a production secret.
+      - name: pytest
+        run: python -m pytest
+
+  frontend:
+    name: Frontend (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint:frontend
+
+      - name: Typecheck
+        run: npm run typecheck:frontend
+
+      - name: Test
+        run: npm run test:frontend
+
+      # `frontend/.env` is gitignored, so the API base URL the app inlines at
+      # build time is supplied here rather than read from a committed file. The
+      # value is illustrative: CI validates that the production bundle builds,
+      # it does not run the app against a live API.
+      - name: Build
+        run: npm run build:frontend
+        env:
+          VITE_API_URL: http://127.0.0.1:8001/api/v1

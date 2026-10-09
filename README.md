@@ -1,5 +1,7 @@
 # ALgotwin
 
+![CI](https://github.com/chinnijayaram00-boop/AlgoTwin/actions/workflows/ci.yml/badge.svg)
+
 ALgotwin is a production-oriented foundation for an AI-powered DSA learning, visualization, and interview platform. The repository provides a runnable web shell, a FastAPI REST API, persistent user accounts with bearer-token authentication, a seeded DSA catalog, an out-of-process code runner that grades a learner's program against a problem's visible cases, database-ready models, environment configuration, and the boundaries needed for future judged submissions, AI explanations, algorithm visualization, and interview features.
 
 ## Stack
@@ -67,7 +69,7 @@ Generate a signing secret for `.env` before starting the API:
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Set the printed value as `JWT_SECRET_KEY` in `.env`. The API refuses to start without it because registration and login cannot issue safe access tokens.
+Set the printed value as `JWT_SECRET_KEY` in `.env` (at least 32 characters). The API refuses to start without it because registration and login cannot issue safe access tokens.
 
 On macOS or Linux, activate the environment with `source .venv/bin/activate` and use `cp` instead of `copy`.
 
@@ -108,17 +110,36 @@ Verified on the current `main`:
 
 | Command | Result |
 | --- | --- |
-| `python -m pytest` | 720 passed |
+| `python -m pytest` | 807 passed |
 | `python -m ruff check backend database` | All checks passed |
 | `npm run lint:frontend` | 0 errors (2 pre-existing warnings) |
 | `npm run typecheck:frontend` | clean |
-| `npm run test:frontend` | 255 passed (14 files) |
+| `npm run test:frontend` | 303 passed (17 files) |
 | `npm run build:frontend` | succeeds, with the chunk-size warning noted below |
 | `git diff --check` | clean |
 
 `test_judge.py` is the slowest file (223 tests) because it actually executes code in every language the catalog advertises.
 
 The learning path endpoint was additionally exercised against a running API at `http://127.0.0.1:8123`: 33 checks covering authentication (401 with and without a token), curriculum stage order, one appearance per catalog problem, Easy-to-Hard ordering inside a stage, absence of any `user_id` in the response or accepted in the query string or body, two learners holding independent paths, a real `PUT /progress/problems/{id}` advancing the recommendation, and two consecutive reads returning byte-identical payloads.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs the checks above on every pull request and on every push to `main`, in two independent jobs so one side cannot mask the other:
+
+- **Backend** — sets up Python 3.12, Node 20 (the judge's JavaScript runtime), and a Temurin JDK 17 (the judge's Java compiler and runtime), installs `backend/requirements.txt`, then runs `python -m ruff check backend database` and `python -m pytest`.
+- **Frontend** — sets up Node 20, runs `npm ci`, then `npm run lint:frontend`, `npm run typecheck:frontend`, `npm run test:frontend`, and `npm run build:frontend`.
+
+Dependency installation is cached per job (`actions/setup-python` caches pip keyed on `backend/requirements.txt`; `actions/setup-node` caches npm keyed on `package-lock.json`). A new push cancels the superseded run for that branch.
+
+CI needs no production secrets. The backend suite provisions its own throwaway databases — the fixtures use private in-memory SQLite and the Alembic tests run against `tmp_path` — and both jobs inject a CI-only throwaway `JWT_SECRET_KEY` and `APP_NAME` through the job environment rather than a committed `.env`. The frontend build supplies `VITE_API_URL` as a build-time environment variable because `frontend/.env` is gitignored.
+
+Replicate CI locally from the repository root by setting the two backend variables and running the seven commands above. On PowerShell:
+
+```powershell
+$env:JWT_SECRET_KEY = "ci-only-throwaway-signing-key-not-a-secret"
+$env:APP_NAME = "ALgotwin API"
+$env:VITE_API_URL = "http://127.0.0.1:8001/api/v1"
+```
 
 ## Database configuration
 
@@ -164,7 +185,7 @@ Backend:
 - Emails are normalized to lowercase on write and compared case-insensitively, so `Ada@example.com` and `ada@example.com` are the same account. A duplicate returns `409` whether it is caught by the pre-check or by the unique index.
 - `get_current_user` in `backend/app/api/dependencies.py` is the reusable guard. Apply it to every user-specific route. `health` and `health/ready` stay public.
 - `AUTO_CREATE_TABLES=true` and startup also apply an idempotent `users` compatibility upgrade: a legacy table with `display_name` is rebuilt into `name`, `email`, `password_hash`, `created_at`, `updated_at` while preserving existing rows, IDs, and dependent `progress` rows. Legacy rows keep a null `password_hash` and cannot sign in until a password is set.
-- Without a usable `JWT_SECRET_KEY` the auth routes return `503` rather than issuing or trusting anything.
+- Without a usable `JWT_SECRET_KEY` the auth routes return `503` rather than issuing or trusting anything. "Usable" means non-blank and at least 32 characters: a short secret is brute-forceable offline from one captured token, so it is refused the same way a blank one is.
 
 Frontend:
 
