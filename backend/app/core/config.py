@@ -29,6 +29,16 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 # that dependency on name resolution order.
 DEFAULT_CORS_ORIGINS = "http://localhost:5174,http://127.0.0.1:5174"
 
+# The shortest signing secret this deployment will accept. HS256's whole security
+# rests on the secret being unguessable, and a short one is brute-forceable offline
+# from a single captured token -- no server access required. The documented
+# generator (``secrets.token_urlsafe(48)``) produces 64 characters; this floor only
+# rejects the kind of placeholder a half-finished setup leaves behind, without
+# constraining a real secret. It is checked in :attr:`Settings.jwt_secret`, so a
+# too-short value fails closed the same way an empty one does: the auth routes
+# answer 503 rather than issue tokens anyone can forge.
+MIN_JWT_SECRET_LENGTH = 32
+
 
 class Settings(BaseSettings):
     app_name: str = "ALgotwin API"
@@ -184,6 +194,12 @@ class Settings(BaseSettings):
         secret = self.jwt_secret_key.get_secret_value()
         if not secret.strip():
             raise RuntimeError("JWT_SECRET_KEY must not be empty.")
+        if len(secret) < MIN_JWT_SECRET_LENGTH:
+            raise RuntimeError(
+                f"JWT_SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters; "
+                "generate one with "
+                'python -c "import secrets; print(secrets.token_urlsafe(48))".'
+            )
         return secret
 
 

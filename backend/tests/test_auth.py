@@ -18,11 +18,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.core.config import Settings
+from backend.app.core.config import MIN_JWT_SECRET_LENGTH, Settings
 from backend.app.core.security import (
+    AuthenticationConfigurationError,
     create_access_token,
     decode_access_token,
     hash_password,
+    validate_jwt_configuration,
     verify_password,
 )
 from backend.tests.conftest import TEST_JWT_SECRET
@@ -536,6 +538,59 @@ def test_auth_endpoints_report_missing_jwt_configuration(db_engine) -> None:
         assert client.get(PROTECTED).status_code == 401
     finally:
         app.dependency_overrides.clear()
+
+
+def test_a_jwt_secret_shorter_than_the_minimum_is_refused(db_engine) -> None:
+    """A too-short secret is as unusable as none: the API must 503, not sign with it.
+
+    A short HS256 secret is brute-forceable offline from a single captured token, so
+    accepting one would advertise an authentication guarantee the deployment cannot
+    keep. It fails closed in the same place and the same way a missing secret does.
+    """
+    from backend.app.core.config import get_settings
+    from backend.app.db.session import get_db
+    from backend.app.main import app
+
+    too_short = "s" * (MIN_JWT_SECRET_LENGTH - 1)
+
+    # The accessor every token path funnels through refuses it...
+    with pytest.raises(RuntimeError):
+        Settings(jwt_secret_key=too_short).jwt_secret
+    # ...and the shared "can this deployment authenticate at all" check agrees.
+    with pytest.raises(AuthenticationConfigurationError):
+        validate_jwt_configuration(Settings(jwt_secret_key=too_short))
+
+    with Session(db_engine) as session:
+        seed_demo_data(session)
+
+    def override_get_db():
+        with Session(db_engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = lambda: Settings(jwt_secret_key=too_short)
+    try:
+        client = TestClient(app)
+
+        assert client.post("/api/v1/auth/register", json=REGISTRATION).status_code == 503
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={"email": REGISTRATION["email"], "password": REGISTRATION["password"]},
+            ).status_code
+            == 503
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_a_jwt_secret_at_the_minimum_length_is_accepted() -> None:
+    """The floor is inclusive: exactly ``MIN_JWT_SECRET_LENGTH`` signs and verifies."""
+    minimal = Settings(jwt_secret_key="s" * MIN_JWT_SECRET_LENGTH)
+
+    assert minimal.jwt_secret == "s" * MIN_JWT_SECRET_LENGTH
+    token = create_access_token(7, minimal)
+    assert decode_access_token(token, minimal) == 7
 
 
 # ---------------------------------------------------------- protected behaviour

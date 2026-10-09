@@ -22,6 +22,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.app.algorithms.inputs import (
@@ -43,6 +44,7 @@ from backend.app.algorithms.registry import (
     list_comparable,
 )
 from backend.app.core.config import Settings
+from backend.app.schemas.visualization import MAX_INPUT_LENGTH, VisualizationRequestBody
 from backend.app.visualization.limits import (
     MAX_COMPARISON_SIDES,
     MIN_COMPARISON_SIDES,
@@ -487,6 +489,49 @@ def test_visualize_rejects_an_empty_input(client: TestClient) -> None:
 
     response = client.post(
         VISUALIZE.format("bubble-sort"), json={"input": "   "}, headers=headers
+    )
+
+    assert response.status_code == 422
+
+
+def test_the_input_ceiling_is_a_ceiling_not_a_wall() -> None:
+    """Exactly ``MAX_INPUT_LENGTH`` is allowed; one character more is refused.
+
+    This is the schema boundary itself, independent of any grammar -- the point is
+    that a body is rejected on its size before a parser ever sees it.
+    """
+    VisualizationRequestBody(input="x" * MAX_INPUT_LENGTH)
+
+    with pytest.raises(ValidationError):
+        VisualizationRequestBody(input="x" * (MAX_INPUT_LENGTH + 1))
+
+
+def test_visualize_rejects_an_oversized_input(client: TestClient) -> None:
+    """An over-long body is a 422, not read in full and then parsed."""
+    headers = auth_headers(client)
+
+    response = client.post(
+        VISUALIZE.format("bubble-sort"),
+        json={"input": "9 " * MAX_INPUT_LENGTH},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_compare_rejects_an_oversized_input(client: TestClient) -> None:
+    headers = auth_headers(client)
+
+    response = client.post(
+        COMPARE,
+        json={
+            "algorithms": [
+                {"algorithm_id": "bubble-sort"},
+                {"algorithm_id": "quick-sort"},
+            ],
+            "input": "9 " * MAX_INPUT_LENGTH,
+        },
+        headers=headers,
     )
 
     assert response.status_code == 422

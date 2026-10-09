@@ -26,6 +26,13 @@ from pydantic import BaseModel, ConfigDict, Field
 #: default budget.
 _STRICT = ConfigDict(extra="forbid")
 
+#: The most characters one algorithm-lab input may carry. The parsers enforce a far
+#: tighter structural bound -- at most 48 elements, a 12x12 grid -- so no valid input
+#: approaches this. The ceiling exists so an oversized body is refused by the request
+#: schema before it is read, tokenized, and held in memory, the same way the source
+#: and stdin payloads on the judge routes are bounded.
+MAX_INPUT_LENGTH = 10_000
+
 
 class AlgorithmSummary(BaseModel):
     """One algorithm as the catalog lists it."""
@@ -102,7 +109,11 @@ class VisualizationRequestBody(BaseModel):
 
     model_config = _STRICT
 
-    input: str = Field(min_length=1, description="The input, in the algorithm's own grammar.")
+    input: str = Field(
+        min_length=1,
+        max_length=MAX_INPUT_LENGTH,
+        description="The input, in the algorithm's own grammar.",
+    )
     #: A ceiling on the returned frames. Lowering it is how a caller asks for a
     #: shorter response; the run is reported as truncated if the ceiling is what
     #: stopped it, so a capped timeline is never presented as the whole run.
@@ -148,7 +159,11 @@ class ComparisonRequestBody(BaseModel):
     model_config = _STRICT
 
     algorithms: list[ComparisonSideRequest] = Field(min_length=2, max_length=4)
-    input: str = Field(min_length=1, description="The one input every side receives.")
+    input: str = Field(
+        min_length=1,
+        max_length=MAX_INPUT_LENGTH,
+        description="The one input every side receives.",
+    )
     max_frames: int | None = Field(default=None, ge=1, le=20_000)
     repetitions: int | None = Field(default=None, ge=1, le=25)
     wall_clock_ms: int | None = Field(default=None, ge=100, le=30_000)
@@ -219,6 +234,7 @@ __all__ = [
     "ComparisonSideResponse",
     "FrameCellResponse",
     "FrameRowResponse",
+    "MAX_INPUT_LENGTH",
     "VisualizationFrameResponse",
     "VisualizationRequestBody",
     "VisualizationResponse",
