@@ -367,3 +367,8 @@ It does not reorder the catalog, invent problems, or decide what counts as solve
 
 ## Project Status
 Analytics and Performance Intelligence implemented and verified.
+
+## Latest Update
+- Added AI Personalization and Mentor Coaching.
+- Added personalized problem recommendations and learning insights.
+
