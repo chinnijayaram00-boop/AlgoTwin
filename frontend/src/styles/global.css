@@ -470,6 +470,53 @@ pre {
   border-color: var(--border-soft);
 }
 
+.button-danger {
+  color: #ffd9df;
+  background: rgba(239, 130, 151, 0.16);
+  border-color: rgba(239, 130, 151, 0.3);
+}
+
+.button-danger:hover {
+  background: rgba(239, 130, 151, 0.26);
+  border-color: rgba(239, 130, 151, 0.45);
+}
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 8, 18, 0.66);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  padding: 22px 22px 20px;
+  background: #161a30;
+  border: 1px solid rgba(124, 108, 255, 0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(4, 5, 16, 0.55);
+}
+
+.confirm-dialog h3 {
+  font-size: 1.05rem;
+}
+
+.confirm-message {
+  margin-top: 8px;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.confirm-dialog .interview-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 .hero-panel,
 .feature-hero,
 .interview-banner {
@@ -3978,12 +4025,44 @@ button.history-row:hover {
 }
 
 .report-question {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.report-question-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-soft);
+}
+
+.report-question-timing {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.interview-rules {
+  display: grid;
+  gap: 10px;
+}
+
+.interview-rule {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 11px 13px;
+  background: rgba(141, 154, 181, 0.05);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.interview-rule p {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .report-question:last-child {

@@ -690,7 +690,7 @@ def to_report_response(
         duration_used_seconds=duration_used,
         questions_answered=len(answered),
         questions_accepted=len(accepted),
-        questions=[_to_report_question(question) for question in interview.questions],
+        questions=[_to_report_question(question, started) for question in interview.questions],
     )
 
 
@@ -726,18 +726,39 @@ def _question_response(question: InterviewQuestion) -> InterviewQuestionResponse
         attempts=int(question.attempts or 0),
         runtime_ms=submission.runtime_ms if submission is not None else None,
         answered_at=question.answered_at_utc,
+        language=submission.language if submission is not None else None,
     )
 
 
-def _to_report_question(question: InterviewQuestion) -> InterviewReportQuestion:
+def _answered_seconds_into_session(
+    question: InterviewQuestion,
+    started: datetime | None,
+) -> int | None:
+    """Whole seconds between the session start and the question's first answer.
+
+    ``answered_at`` is the first time a submission was linked to the question,
+    so ``None`` means the question was never answered and the answer is the
+    missing fact, not a zero. A clock that never started produces ``None`` too.
+    """
+    answered = question.answered_at_utc
+    if started is None or answered is None:
+        return None
+    return max(0, int((answered - started).total_seconds()))
+
+
+def _to_report_question(
+    question: InterviewQuestion,
+    started: datetime | None,
+) -> InterviewReportQuestion:
     """The report's view of one question: the session view plus the judge's
-    measurements."""
+    measurements and the answer's timing."""
     base = _question_response(question).model_dump()
     submission = question.submission
     base.update(
         test_cases_passed=submission.test_cases_passed if submission is not None else None,
         test_cases_total=submission.test_cases_total if submission is not None else None,
         memory_mb=submission.memory_mb if submission is not None else None,
+        answered_seconds_into_session=_answered_seconds_into_session(question, started),
     )
     return InterviewReportQuestion(**base)
 
@@ -751,6 +772,7 @@ def _to_summary(interview: InterviewSession) -> InterviewSummaryResponse:
         level=interview.level,
         difficulty=interview.difficulty,
         question_count=interview.question_count,
+        duration_seconds=interview.duration_seconds,
         score=interview.score,
         timed_out=interview.was_timed_out,
         created_at=interview.created_at_utc,

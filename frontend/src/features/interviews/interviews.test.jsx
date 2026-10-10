@@ -141,8 +141,24 @@ const REPORT = {
   questions_answered: 2,
   questions_accepted: 1,
   questions: [
-    { ...SESSION_RUNNING_AFTER_SUBMIT.questions[0], test_cases_passed: 3, test_cases_total: 3, memory_mb: 4 },
-    { ...SESSION_COMPLETED.questions[1], test_cases_passed: 1, test_cases_total: 3, memory_mb: null },
+    {
+      ...SESSION_RUNNING_AFTER_SUBMIT.questions[0],
+      submission_id: 501,
+      language: "python",
+      answered_seconds_into_session: 252,
+      test_cases_passed: 3,
+      test_cases_total: 3,
+      memory_mb: 4,
+    },
+    {
+      ...SESSION_COMPLETED.questions[1],
+      submission_id: 502,
+      language: "javascript",
+      answered_seconds_into_session: 600,
+      test_cases_passed: 1,
+      test_cases_total: 3,
+      memory_mb: null,
+    },
   ],
 };
 
@@ -157,6 +173,7 @@ const HISTORY = {
       question_count: 1,
       score: 100,
       timed_out: false,
+      duration_seconds: 1500,
       created_at: "2026-10-06T09:00:00Z",
       completed_at: "2026-10-06T09:25:00Z",
     },
@@ -169,6 +186,7 @@ const HISTORY = {
       question_count: 3,
       score: null,
       timed_out: false,
+      duration_seconds: 900,
       created_at: "2026-10-05T18:00:00Z",
       completed_at: "2026-10-05T18:02:00Z",
     },
@@ -327,10 +345,11 @@ describe("InterviewsPage", () => {
     expect(activeTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("finishing a session opens the report built from the report endpoint", async () => {
+  it("finishing a session asks for confirmation, then opens the report", async () => {
     apiClient.get.mockImplementation((path) => {
       if (path.startsWith("/interviews/41/report")) return Promise.resolve(REPORT);
       if (path.startsWith("/interviews?")) return Promise.resolve(EMPTY_HISTORY);
+      if (path.startsWith("/ai/status")) return Promise.resolve({ configured: true, provider: "fake", model: "demo" });
       return Promise.reject(notFound("No active interview."));
     });
     apiClient.post.mockImplementation((path) => {
@@ -346,10 +365,39 @@ describe("InterviewsPage", () => {
     await user.click(await screen.findByRole("button", { name: /start the clock/i }));
     await user.click(screen.getByRole("button", { name: /finish interview/i }));
 
+    // Ending early is irreversible, so it must pass through a confirmation.
+    expect(apiClient.post).not.toHaveBeenCalledWith("/interviews/41/finish", expect.anything(), expect.anything());
+    expect(screen.getByRole("dialog", { name: /finish and score this interview/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /finish and score/i }));
+
     expect(await screen.findByRole("heading", { name: /your interview report/i })).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith("/interviews/41/finish", {}, { token: "token-123" });
     expect(apiClient.get).toHaveBeenCalledWith("/interviews/41/report", { token: "token-123" });
     expect(screen.getByText("50")).toBeInTheDocument();
     expect(screen.getByText("1 of 3 test cases passed")).toBeInTheDocument();
+  });
+
+  it("cancelling the finish confirmation keeps the session running", async () => {
+    apiClient.get.mockImplementation((path) =>
+      path.startsWith("/interviews?") ? Promise.resolve(EMPTY_HISTORY) : Promise.reject(notFound("No active interview.")),
+    );
+    apiClient.post.mockImplementation((path) => {
+      if (path === "/interviews/41/start") return Promise.resolve(SESSION_RUNNING);
+      return Promise.resolve(SESSION_CREATED);
+    });
+
+    renderInRouter(<InterviewsPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /start interview/i }));
+    await user.click(await screen.findByRole("button", { name: /start the clock/i }));
+    await user.click(screen.getByRole("button", { name: /finish interview/i }));
+    await user.click(screen.getByRole("button", { name: /keep coding/i }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /two sum/i })).toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalledWith("/interviews/41/finish", expect.anything(), expect.anything());
   });
 
   it("abandoning a session returns to setup and refreshes the history", async () => {
@@ -367,8 +415,72 @@ describe("InterviewsPage", () => {
     await user.click(await screen.findByRole("button", { name: /start interview/i }));
     await user.click(await screen.findByRole("button", { name: /abandon interview/i }));
 
+    expect(screen.getByRole("dialog", { name: /abandon this interview/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /yes, abandon/i }));
+
     expect(await screen.findByRole("heading", { name: /set up an interview/i })).toBeInTheDocument();
     expect(await screen.findByText(/abandoned/i)).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledWith("/interviews/41/abandon", {}, { token: "token-123" });
+  });
+
+  it("lets Escape back out of the abandon confirmation", async () => {
+    apiClient.get.mockImplementation((path) =>
+      path.startsWith("/interviews?") ? Promise.resolve(EMPTY_HISTORY) : Promise.reject(notFound("No active interview.")),
+    );
+    apiClient.post.mockResolvedValue(SESSION_CREATED);
+
+    renderInRouter(<InterviewsPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /start interview/i }));
+    await user.click(screen.getByRole("button", { name: /abandon interview/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalledWith("/interviews/41/abandon", expect.anything(), expect.anything());
+  });
+
+  it("shows language, timing, and an AI diagnosis per answered question in the report", async () => {
+    apiClient.get.mockImplementation((path) => {
+      if (path.startsWith("/interviews/41/report")) return Promise.resolve(REPORT);
+      if (path.startsWith("/interviews?")) return Promise.resolve(EMPTY_HISTORY);
+      if (path.startsWith("/ai/status")) return Promise.resolve({ configured: true, provider: "fake", model: "demo" });
+      return Promise.reject(notFound("No active interview."));
+    });
+    apiClient.post.mockImplementation((path) => {
+      if (path === "/interviews/41/start") return Promise.resolve(SESSION_RUNNING);
+      if (path === "/interviews/41/finish") return Promise.resolve(SESSION_COMPLETED);
+      return Promise.resolve(SESSION_CREATED);
+    });
+
+    renderInRouter(<InterviewsPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /start interview/i }));
+    await user.click(await screen.findByRole("button", { name: /start the clock/i }));
+    await user.click(screen.getByRole("button", { name: /finish interview/i }));
+    await user.click(screen.getByRole("button", { name: /finish and score/i }));
+
+    expect(await screen.findByRole("heading", { name: /your interview report/i })).toBeInTheDocument();
+    expect(screen.getByText(/Python/)).toBeInTheDocument();
+    expect(screen.getByText(/JavaScript/)).toBeInTheDocument();
+    expect(screen.getByText(/First answer 04:12 into the session/)).toBeInTheDocument();
+    expect(screen.getByText(/First answer 10:00 into the session/)).toBeInTheDocument();
+    // One diagnosis affordance per answered question, none for the unanswered slot.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /diagnose this result/i })).toHaveLength(2));
+  });
+
+  it("shows a history row's duration and question count", async () => {
+    apiClient.get.mockImplementation((path) =>
+      path.startsWith("/interviews?") ? Promise.resolve(HISTORY) : Promise.reject(notFound("No active interview.")),
+    );
+
+    renderInRouter(<InterviewsPage />);
+
+    expect(await screen.findByText(/1 question · 25 min/)).toBeInTheDocument();
+    expect(screen.getByText(/3 questions · 15 min/)).toBeInTheDocument();
   });
 
   it("opens a completed interview's report from the history rows", async () => {

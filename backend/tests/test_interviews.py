@@ -755,9 +755,47 @@ def test_the_report_reads_back_what_actually_happened(client: TestClient) -> Non
     assert report["duration_used_seconds"] >= 0
     question = report["questions"][0]
     assert question["accepted"] is True
+    assert question["language"] == "python"
     assert question["test_cases_total"] is not None
     assert question["test_cases_passed"] == question["test_cases_total"]
+    # The first answer's timing is a reading of the stored timestamps, so it is
+    # present for an answered question and lands between the start and now.
+    assert question["answered_seconds_into_session"] is not None
+    assert question["answered_seconds_into_session"] >= 0
     assert not response_leaks_no_test_material(report)
+
+
+def test_the_report_distinguishes_answered_from_unanswered_questions(
+    client: TestClient,
+) -> None:
+    """An unanswered question reports no language, no timing, no verdict.
+
+    Finishing a two-question session after answering only the first must keep
+    the second question honestly empty rather than inventing a language or a
+    zero-second answer time.
+    """
+    headers = as_learner(client)
+    interview = create(client, headers, question_count=2, difficulty="Easy", topic="arrays")
+    session = start(client, headers, interview["id"])
+    _submit(client, headers, session["id"], 0, source=TWO_SUM_PYTHON)
+    body = client.post(f"{INTERVIEWS}/{session['id']}/finish", headers=headers).json()
+
+    assert body["status"] == "completed"
+    assert body["score"] == 50
+
+    report = client.get(f"{INTERVIEWS}/{session['id']}/report", headers=headers).json()
+    answered, unanswered = report["questions"]
+
+    assert answered["status"] == "submitted"
+    assert answered["language"] == "python"
+    assert answered["answered_seconds_into_session"] is not None
+    assert answered["verdict"] == "accepted"
+
+    assert unanswered["status"] == "pending"
+    assert unanswered["language"] is None
+    assert unanswered["answered_seconds_into_session"] is None
+    assert unanswered["verdict"] is None
+    assert unanswered["test_cases_total"] is None
 
 
 def test_an_abandoned_interview_has_no_report(client: TestClient) -> None:
@@ -817,3 +855,36 @@ def test_completed_sessions_appear_in_history_with_a_score(client: TestClient) -
     assert item["score"] == 100
     assert item["timed_out"] is False
     assert item["completed_at"] is not None
+    assert item["duration_seconds"] == 30 * 60
+
+
+def test_a_running_session_resumes_unchanged_after_a_refresh(client: TestClient) -> None:
+    """Leaving and returning to an interview is a read, not a restart.
+
+    The resume path is the active-session read: the same session id comes back
+    still running with its timer still counting down from the stored
+    ``expires_at``, and its recorded questions are exactly the drawn ones. A
+    refresh must never start a second session, reset the clock, or re-draw.
+    """
+    headers = as_learner(client)
+    interview = create(client, headers)
+    first = start(client, headers, interview["id"])
+
+    resumed = client.get(f"{INTERVIEWS}/active", headers=headers).json()
+    assert resumed["id"] == interview["id"]
+    assert resumed["status"] == "in_progress"
+    assert resumed["started_at"] == first["started_at"]
+    assert resumed["expires_at"] == first["expires_at"]
+    assert [q["slug"] for q in resumed["questions"]] == [q["slug"] for q in first["questions"]]
+    # The countdown moved toward zero because time passed, not because a new
+    # clock started; it can never exceed the stored duration.
+    assert 0 <= resumed["remaining_seconds"] <= first["remaining_seconds"]
+
+    # A second refresh keeps the same session; nothing was created or restarted,
+    # and exactly the one running session appears in the learner's history.
+    again = client.get(f"{INTERVIEWS}/active", headers=headers).json()
+    assert again["id"] == interview["id"]
+    assert again["status"] == "in_progress"
+    items = client.get(INTERVIEWS, headers=headers).json()["items"]
+    assert [item["id"] for item in items] == [interview["id"]]
+    assert items[0]["status"] == "in_progress"

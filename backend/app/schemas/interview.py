@@ -168,6 +168,9 @@ class InterviewQuestionResponse(BaseModel):
     attempts: int = 0
     runtime_ms: int | None = None
     answered_at: datetime | None = None
+    #: The language the latest submission was written in, from the judged
+    #: submission row. ``None`` while the question is still pending.
+    language: str | None = None
 
 
 class InterviewSessionResponse(BaseModel):
@@ -212,6 +215,10 @@ class InterviewSummaryResponse(BaseModel):
     level: str | None = None
     difficulty: str | None = None
     question_count: int
+    #: How long the session was calibrated for, in seconds -- the same unit the
+    #: session body uses. Present so a history row can state the session's
+    #: duration, not just its question count.
+    duration_seconds: int
     score: int | None = None
     timed_out: bool = False
     created_at: datetime
@@ -234,6 +241,10 @@ class InterviewReportQuestion(InterviewQuestionResponse):
     test_cases_passed: int | None = None
     test_cases_total: int | None = None
     memory_mb: int | None = None
+    #: Whole seconds from the session start to the question's first answer,
+    #: derived from the stored timestamps. ``None`` while the question is
+    #: unanswered, which is the honest "not answered" rather than a zero.
+    answered_seconds_into_session: int | None = None
 
 
 class InterviewReportResponse(BaseModel):

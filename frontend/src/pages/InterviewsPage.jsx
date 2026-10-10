@@ -9,12 +9,13 @@ import {
   RotateCcw,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
 import { ErrorState, EmptyState, LoadingState, PageHeader, SectionCard, StatusPill } from "../components/ui/Feedback";
 import { problemApi } from "../services/platformService";
 import { useApiResource } from "../hooks/useApiResource";
 import CodeEditor from "../features/problems/CodeEditor";
+import DiagnosisPanel from "../features/ai/DiagnosisPanel";
 import {
   formatRemainingSeconds,
   interviewStatusLabel,
@@ -178,6 +179,47 @@ function InterviewPageHeader() {
 
 // ---------------------------------------------------------------- setup view
 
+function ConfirmDialog({ title, message, confirmLabel, danger = false, saving, onCancel, onConfirm }) {
+  const safeOptionRef = useRef(null);
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  // Move focus to the safe option (the one that keeps the interview) so an
+  // enter key can never confirm an exit by accident, and let Escape back out.
+  // The listener is bound once on mount so a timer tick in the parent cannot
+  // steal focus back from the option the learner chose.
+  useEffect(() => {
+    safeOptionRef.current?.focus();
+    function onKeyDown(event) {
+      if (event.key === "Escape") onCancelRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <div className="confirm-backdrop">
+      <div aria-labelledby="interview-confirm-title" aria-modal="true" className="confirm-dialog" role="dialog">
+        <h3 id="interview-confirm-title">{title}</h3>
+        <p className="confirm-message">{message}</p>
+        <div className="interview-actions">
+          <button className="button button-secondary" onClick={onCancel} ref={safeOptionRef} type="button">
+            Keep coding
+          </button>
+          <button
+            className={`button ${danger ? "button-danger" : "button-primary"}`}
+            disabled={saving}
+            onClick={onConfirm}
+            type="button"
+          >
+            {saving ? "Working…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SetupView({ actionError, saving, history, onCreate, onOpenReport }) {
   const [role, setRole] = useState(DEFAULT_ROLE);
   const [level, setLevel] = useState("");
@@ -313,6 +355,7 @@ function SetupView({ actionError, saving, history, onCreate, onOpenReport }) {
 }
 
 function HistoryRow({ summary, onOpenReport }) {
+  const duration = summary.duration_seconds ? `${Math.round(summary.duration_seconds / 60)} min` : null;
   const body = (
     <>
       <div className="submission-row-main">
@@ -321,6 +364,8 @@ function HistoryRow({ summary, onOpenReport }) {
           {formatSubmittedAt(summary.created_at)}
           {summary.difficulty ? ` · ${summary.difficulty}` : ""}
           {summary.topic ? ` · ${summary.topic}` : ""}
+          {` · ${summary.question_count} ${summary.question_count === 1 ? "question" : "questions"}`}
+          {duration ? ` · ${duration}` : ""}
         </span>
       </div>
       <div className="submission-row-meta">
@@ -349,6 +394,8 @@ function HistoryRow({ summary, onOpenReport }) {
 // --------------------------------------------------------- created (ready) view
 
 function ReadyView({ session, saving, actionError, onStart, onAbandon }) {
+  const [confirmingAbandon, setConfirmingAbandon] = useState(false);
+
   return (
     <div className="page-stack">
       <PageHeader
@@ -369,6 +416,27 @@ function ReadyView({ session, saving, actionError, onStart, onAbandon }) {
           </p>
         </div>
       </section>
+
+      <SectionCard title="How this works" description="The rules of the rehearsal, before the clock starts.">
+        <div className="interview-rules">
+          <div className="interview-rule">
+            <span className="stage-number">01</span>
+            <p>The clock starts only when you press <strong>Start the clock</strong>. It is a server timer; this page just mirrors it.</p>
+          </div>
+          <div className="interview-rule">
+            <span className="stage-number">02</span>
+            <p>Work through the questions in any order. Each answer is run through the same judge the rest of the platform uses, hidden cases included.</p>
+          </div>
+          <div className="interview-rule">
+            <span className="stage-number">03</span>
+            <p>You may revise any question while time remains; every attempt is recorded. Your code stays on this page, so a refresh resumes the session but not your edits.</p>
+          </div>
+          <div className="interview-rule">
+            <span className="stage-number">04</span>
+            <p>The score is the percentage of questions the judge accepted. Ending on the timer, or by pressing Finish, both count; abandoning leaves no score.</p>
+          </div>
+        </div>
+      </SectionCard>
 
       <SectionCard title="Question list" description="In the order they will be presented.">
         <div className="stage-list">
@@ -392,10 +460,25 @@ function ReadyView({ session, saving, actionError, onStart, onAbandon }) {
         <button className="button button-primary" disabled={saving} onClick={() => onStart()} type="button">
           <Play size={15} /> {saving ? "Starting…" : "Start the clock"}
         </button>
-        <button className="button button-quiet" disabled={saving} onClick={() => onAbandon()} type="button">
+        <button className="button button-quiet" disabled={saving} onClick={() => setConfirmingAbandon(true)} type="button">
           <XCircle size={15} /> Abandon interview
         </button>
       </div>
+
+      {confirmingAbandon ? (
+        <ConfirmDialog
+          danger
+          confirmLabel="Yes, abandon"
+          message="Abandoning discards this session and its recorded questions without a score. This cannot be undone."
+          onCancel={() => setConfirmingAbandon(false)}
+          onConfirm={() => {
+            setConfirmingAbandon(false);
+            onAbandon();
+          }}
+          saving={saving}
+          title="Abandon this interview?"
+        />
+      ) : null}
     </div>
   );
 }
@@ -410,6 +493,9 @@ function ActiveInterview({ session, saving, actionError, onSubmitAnswer, onFinis
   const [activePosition, setActivePosition] = useState(session.current_index ?? 0);
   const [languageByPosition, setLanguageByPosition] = useState({});
   const [codeByPosition, setCodeByPosition] = useState({});
+  //: Which early exit the learner is confirming, if any. Finishing and
+  //: abandoning are both irreversible, so both route through a confirmation.
+  const [pendingExit, setPendingExit] = useState(null);
 
   const currentQuestion =
     session.questions.find((question) => question.position === activePosition) || session.questions[0];
@@ -467,6 +553,20 @@ function ActiveInterview({ session, saving, actionError, onSubmitAnswer, onFinis
       setActivePosition(result.current_index ?? activePosition);
     }
   }
+
+  async function confirmExit() {
+    const action = pendingExit;
+    setPendingExit(null);
+    if (action === "finish") await onFinish();
+    else if (action === "abandon") await onAbandon();
+  }
+
+  const exitTitle = pendingExit === "abandon" ? "Abandon this interview?" : "Finish and score this interview?";
+  const exitMessage =
+    pendingExit === "abandon"
+      ? "Abandoning discards the session without a score. Your answers stay in your submission history but this interview will have no result. This cannot be undone."
+      : "Finishing ends the clock now and scores the questions the judge has already accepted. Questions you have not submitted are scored as unanswered. This cannot be undone.";
+  const exitConfirmLabel = pendingExit === "abandon" ? "Yes, abandon" : "Finish and score";
 
   const answeredCount = session.questions.filter((question) => question.status === "submitted").length;
   const timerWarm = remaining != null && remaining < WARN_BELOW_SECONDS;
@@ -594,7 +694,7 @@ function ActiveInterview({ session, saving, actionError, onSubmitAnswer, onFinis
             <button
               className="button button-quiet"
               disabled={saving}
-              onClick={() => onFinish()}
+              onClick={() => setPendingExit("finish")}
               type="button"
             >
               Finish interview
@@ -602,7 +702,7 @@ function ActiveInterview({ session, saving, actionError, onSubmitAnswer, onFinis
             <button
               className="button button-quiet"
               disabled={saving}
-              onClick={() => onAbandon()}
+              onClick={() => setPendingExit("abandon")}
               type="button"
             >
               <XCircle size={15} /> Abandon
@@ -615,6 +715,18 @@ function ActiveInterview({ session, saving, actionError, onSubmitAnswer, onFinis
           </div>
         ) : null}
       </SectionCard>
+
+      {pendingExit ? (
+        <ConfirmDialog
+          danger={pendingExit === "abandon"}
+          confirmLabel={exitConfirmLabel}
+          message={exitMessage}
+          onCancel={() => setPendingExit(null)}
+          onConfirm={confirmExit}
+          saving={saving}
+          title={exitTitle}
+        />
+      ) : null}
     </div>
   );
 }
@@ -682,24 +794,35 @@ function ReportView({ report, error, errorStatus, loading, onClose, onRetry, onS
             <div className="history-list">
               {report.questions.map((question) => (
                 <div className="report-question" key={question.position}>
-                  <div className="submission-row-main">
-                    <strong>
-                      <span className="report-question-index">Q{question.position + 1}</span> {question.title}
-                    </strong>
-                    <span className="submission-row-meta">
-                      {question.difficulty} · {question.topics.join(" · ")}
-                      {question.attempts > 0 ? ` · ${question.attempts} ${question.attempts === 1 ? "attempt" : "attempts"}` : ""}
-                    </span>
+                  <div className="report-question-head">
+                    <div className="submission-row-main">
+                      <strong>
+                        <span className="report-question-index">Q{question.position + 1}</span> {question.title}
+                      </strong>
+                      <span className="submission-row-meta">
+                        {question.difficulty} · {question.topics.join(" · ")}
+                        {question.status === "submitted" && question.language ? ` · ${languageLabel(question.language)}` : ""}
+                        {question.attempts > 0 ? ` · ${question.attempts} ${question.attempts === 1 ? "attempt" : "attempts"}` : ""}
+                      </span>
+                    </div>
+                    <div className="submission-row-meta">
+                      {question.status === "submitted" ? (
+                        <StatusPill tone={statusTone(question.verdict)}>{statusLabel(question.verdict)}</StatusPill>
+                      ) : (
+                        <StatusPill tone="neutral">Unanswered</StatusPill>
+                      )}
+                      {formatCaseCounts(question) ? <span>{formatCaseCounts(question)}</span> : null}
+                      {formatRuntime(question.runtime_ms) ? <span>{formatRuntime(question.runtime_ms)}</span> : null}
+                    </div>
                   </div>
-                  <div className="submission-row-meta">
-                    {question.status === "submitted" ? (
-                      <StatusPill tone={statusTone(question.verdict)}>{statusLabel(question.verdict)}</StatusPill>
-                    ) : (
-                      <StatusPill tone="neutral">Unanswered</StatusPill>
-                    )}
-                    {formatCaseCounts(question) ? <span>{formatCaseCounts(question)}</span> : null}
-                    {formatRuntime(question.runtime_ms) ? <span>{formatRuntime(question.runtime_ms)}</span> : null}
-                  </div>
+                  {question.answered_seconds_into_session != null ? (
+                    <p className="report-question-timing">
+                      First answer {formatRemainingSeconds(question.answered_seconds_into_session)} into the session.
+                    </p>
+                  ) : null}
+                  {question.status === "submitted" && question.submission_id ? (
+                    <DiagnosisPanel status={question.verdict} submissionId={question.submission_id} />
+                  ) : null}
                 </div>
               ))}
             </div>
