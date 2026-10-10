@@ -344,7 +344,7 @@ The engine is a pure function over two inputs: the published catalog and the cal
 
 Restricting candidates to the current stage is the point of the design: a global score would happily skip a half-finished medium-difficulty stage and jump to the first unsolved Easy two topics later, because an unstarted Easy always outscores a started Medium. The curriculum picks *where* you are; the score picks *what is next* there.
 
-`weak_topics` lists the primary topics that are started but not finished, ordered by outstanding problem count and then alphabetically, capped at six so the list stays a worklist rather than a table of contents.
+`weak_topics` lists the topics the learner has started but not finished — a start counts if the learner has either attempted a problem or solved one in the topic, and a topic is weak while any problem in it remains unsolved — ordered by outstanding problem count and then alphabetically, capped at six so the list stays a worklist rather than a table of contents.
 
 ### Reading the response
 

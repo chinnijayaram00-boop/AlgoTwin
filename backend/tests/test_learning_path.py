@@ -193,6 +193,20 @@ def test_a_fresh_learner_is_offered_an_easy_problem_in_the_first_stage(
     assert rec["reason"] == "Start with the Arrays fundamentals."
 
 
+def test_a_fresh_learners_recommendation_score_matches_the_documented_formula(
+    client: TestClient,
+) -> None:
+    """The exposed ``score`` is the documented sum, not an opaque ranking key.
+
+    Fresh learner, first stage: prerequisite-ready +50, stage-started +0 (no
+    solve yet), problem is unstarted +0, Easy +60, stage progress +0, and the
+    problem's whole topic still outstanding +10 = 120.
+    """
+    rec = recommendation(path_for(client, as_learner(client)))
+
+    assert rec["score"] == 120
+
+
 def test_the_recommendation_lands_in_the_current_stage(client: TestClient) -> None:
     headers = as_learner(client)
     mark(client, headers, "two-sum", "solved")
@@ -334,6 +348,41 @@ def test_weak_topics_start_empty_and_fill_in_as_work_is_finished(client: TestCli
     assert "Dynamic Programming" not in payload["weak_topics"]
 
 
+def test_a_topic_that_was_only_attempted_is_reported_as_weak(client: TestClient) -> None:
+    """Starting a problem without solving it still starts its topic.
+
+    ``weak_topics`` is documented as "started but not finished". A learner who
+    tried a Dynamic Programming problem and got stuck has started that topic, so
+    it belongs in the worklist before the first solve lands.
+    """
+    headers = as_learner(client)
+    assert "Dynamic Programming" not in path_for(client, headers)["weak_topics"]
+
+    mark(client, headers, "longest-increasing-subsequence", "attempted")
+
+    payload = path_for(client, headers)
+    assert "Dynamic Programming" in payload["weak_topics"]
+
+
+def test_weak_topics_never_include_a_finished_or_untouched_topic(
+    client: TestClient,
+) -> None:
+    headers = as_learner(client)
+
+    # An untouched catalog has no weak topics at all: nothing has been started.
+    assert path_for(client, headers)["weak_topics"] == []
+
+    # Finish the whole Stack stage (stage 3 of the curriculum) and leave Dynamic
+    # Programming untouched: neither is weak, because neither has unfinished
+    # *started* work.
+    for problem in path_for(client, headers)["stages"][2]["problems"]:
+        mark(client, headers, problem["slug"], "solved")
+
+    payload = path_for(client, headers)
+    assert "Stack" not in payload["weak_topics"]
+    assert "Dynamic Programming" not in payload["weak_topics"]
+
+
 # ---------------------------------------------------------- user isolation
 
 
@@ -422,6 +471,25 @@ def test_an_unpublished_problem_leaves_the_path(
     }
 
 
+def test_progress_for_an_unpublished_problem_stops_counting(
+    client: TestClient, db_session: Session
+) -> None:
+    """A solve is only progress when the problem is part of the published path."""
+    headers = as_learner(client)
+    mark(client, headers, "two-sum", "solved")
+    before = path_for(client, headers)
+    assert before["solved_problems"] == 1
+
+    hidden = db_session.scalar(select(Problem).where(Problem.slug == "two-sum"))
+    hidden.is_published = False
+    db_session.commit()
+
+    after = path_for(client, headers)
+
+    assert after["total_problems"] == before["total_problems"] - 1
+    assert after["solved_problems"] == 0
+
+
 def test_the_endpoint_is_registered_in_the_public_api(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 
@@ -503,3 +571,85 @@ def test_the_builder_ignores_the_order_of_the_rows_it_is_given() -> None:
 
     assert forward == backward
     assert forward.recommendation.problem.slug == "one"
+
+
+def test_weak_topics_are_capped_and_ordered_by_outstanding_then_name() -> None:
+    problems: list[Problem] = []
+    progress: dict[int, Progress] = {}
+    problem_id = 1
+    for letter in "ABCDEFGH":
+        for offset in range(2):
+            problems.append(_problem(problem_id, f"p{problem_id}", "Easy", [f"Topic {letter}"]))
+            if offset == 1:
+                progress[problem_id] = Progress(
+                    user_id=1, problem_id=problem_id, status="solved", attempts_count=1
+                )
+            problem_id += 1
+
+    payload = build_learning_path(problems, progress)
+
+    # Every topic has exactly one solve and one gap, so "outstanding" ties at
+    # one and the cap keeps the alphabetically-first six topics.
+    assert payload.weak_topics == [f"Topic {letter}" for letter in "ABCDEF"]
+
+
+def test_completion_percentage_is_rounded_to_two_decimals() -> None:
+    problems = [_problem(i, f"p{i}", "Easy", ["Arrays"]) for i in range(1, 4)]
+    progress = {1: Progress(user_id=1, problem_id=1, status="solved", attempts_count=1)}
+
+    payload = build_learning_path(problems, progress)
+
+    assert payload.completion_percentage == 33.33
+    assert payload.stages[0].completion_percentage == 33.33
+
+
+def test_a_non_list_topics_column_is_filed_under_uncategorised() -> None:
+    problem = Problem(
+        id=1,
+        slug="odd",
+        title="Odd Storage",
+        summary="Summary.",
+        difficulty="Easy",
+        topics="Arrays",
+    )
+
+    payload = build_learning_path([problem], {})
+
+    assert [stage.title for stage in payload.stages] == ["Uncategorised"]
+    assert payload.stages[0].problems[0].topics == []
+
+
+def test_non_string_topic_entries_are_filtered_out() -> None:
+    problem = _problem(1, "mixed", "Easy", ["Arrays", {"bad": 1}, None, 3, True])
+
+    payload = build_learning_path([problem], {})
+
+    # Dicts, Nones, and booleans drop out; ints are coerced to their labels so
+    # the path can still make a decision from a dirty row.
+    assert payload.stages[0].problems[0].topics == ["Arrays", "3"]
+
+
+def test_a_dirty_attempts_count_is_clamped_to_zero() -> None:
+    problems = [_problem(1, "one", "Easy", ["Arrays"])]
+
+    for raw in (-5, None):
+        progress = {1: Progress(user_id=1, problem_id=1, status="attempted", attempts_count=raw)}
+        payload = build_learning_path(problems, progress)
+
+        assert payload.stages[0].problems[0].attempts_count == 0
+        assert payload.stages[0].attempted_count == 1
+
+
+def test_a_legacy_status_is_read_as_solved_in_the_path() -> None:
+    """A row written before the status vocabulary was enforced still counts."""
+    problems = [
+        _problem(1, "one", "Easy", ["Arrays"]),
+        _problem(2, "two", "Easy", ["Arrays"]),
+    ]
+    progress = {1: Progress(user_id=1, problem_id=1, status="completed", attempts_count=1)}
+
+    payload = build_learning_path(problems, progress)
+
+    assert payload.stages[0].solved_count == 1
+    assert payload.solved_problems == 1
+    assert payload.recommendation.problem.problem_id == 2

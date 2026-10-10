@@ -259,6 +259,35 @@ describe("LearningPathPage", () => {
     expect(apiClient.get).toHaveBeenCalledTimes(1);
   });
 
+  it("flags an unready stage with the prerequisite it still owes", async () => {
+    const unready = {
+      ...PATH,
+      stages: PATH.stages.map((stage, index) =>
+        index === 2
+          ? { ...stage, prerequisite_ready: false, prerequisite_title: "Strings" }
+          : stage,
+      ),
+    };
+    apiClient.get.mockResolvedValue(unready);
+    const { container } = renderInRouter(<LearningPathPage />);
+    await waitForPath();
+
+    const rows = container.querySelectorAll(".stage-row");
+    expect(rows[2]).toHaveTextContent("needs Strings first");
+  });
+
+  it("shows the completion metrics when every stage is finished", async () => {
+    apiClient.get.mockResolvedValue(COMPLETE_PATH);
+    renderInRouter(<LearningPathPage />);
+
+    await screen.findByText(/path complete/i);
+    const currentCard = screen.getByText("Every stage finished").closest(".metric-card");
+    expect(currentCard).toHaveTextContent("Current stage");
+    expect(currentCard).toHaveTextContent("Complete");
+    expect(screen.getByText("6 of 6 solved")).toBeInTheDocument();
+    expect(screen.getByText("3/3")).toBeInTheDocument();
+  });
+
   it("explains an expired session instead of a generic error", async () => {
     const failure = new Error("Not authenticated");
     failure.status = 401;

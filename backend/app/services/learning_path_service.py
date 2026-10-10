@@ -163,12 +163,18 @@ def _topics_of(problem: Problem) -> list[str]:
 
     Mirrors the same coercion in :mod:`backend.app.services.progress_service`
     because ``Problem.topics`` is a JSON column: whatever the database holds,
-    the path has to make a decision from it rather than raise.
+    the path has to make a decision from it rather than raise. Only countable
+    scalars survive -- a dict, a ``None``, or a boolean in the column is a dirty
+    row, not a topic label.
     """
     topics = problem.topics
     if not isinstance(topics, list):
         return []
-    return [str(topic) for topic in topics if isinstance(topic, (str, int, float))]
+    return [
+        str(topic)
+        for topic in topics
+        if isinstance(topic, (str, int, float)) and not isinstance(topic, bool)
+    ]
 
 
 def stage_key(title: str) -> str:
@@ -209,11 +215,17 @@ def _entry_for(problem: Problem, progress: Progress | None) -> _Entry:
 
 def _topic_counts(
     entries: list[_Entry],
-) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    """Per-topic totals, unsolved counts, and solved counts across the catalog."""
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
+    """Per-topic totals, unsolved, solved, and attempted counts across the catalog.
+
+    ``unsolved`` drives the priority score; ``solved`` and ``attempted`` together
+    describe whether a topic has been *started*, which is what separates a weak
+    topic from an untouched one in :func:`_weak_topics`.
+    """
     total: dict[str, int] = {}
     unsolved: dict[str, int] = {}
     solved: dict[str, int] = {}
+    attempted: dict[str, int] = {}
     for entry in entries:
         for topic in entry.topics:
             total[topic] = total.get(topic, 0) + 1
@@ -221,22 +233,31 @@ def _topic_counts(
                 solved[topic] = solved.get(topic, 0) + 1
             else:
                 unsolved[topic] = unsolved.get(topic, 0) + 1
-    return total, unsolved, solved
+            if entry.status == ATTEMPTED:
+                attempted[topic] = attempted.get(topic, 0) + 1
+    return total, unsolved, solved, attempted
 
 
 def _weak_topics(
-    topic_total: dict[str, int], topic_solved: dict[str, int]
+    topic_total: dict[str, int],
+    topic_solved: dict[str, int],
+    topic_attempted: dict[str, int],
 ) -> list[str]:
     """Topics the learner has started but not finished, most outstanding first.
 
-    "Started but not finished" is ``0 < solved < total``: a topic with nothing
-    solved yet is not weak, it is untouched, and a finished one is not weak at
-    all. Ties break alphabetically so the list is stable.
+    "Started but not finished" means the learner has *touched* the topic -- at
+    least one problem solved **or attempted** -- and has not solved every problem
+    in it. A topic with nothing solved and nothing attempted is not weak, it is
+    untouched, and a topic that is fully solved is not weak at all. Counting
+    attempts matters: a learner who tried a problem and could not finish it has
+    started that topic, so reporting it as untouched would understate the work
+    owed. Ties break alphabetically so the list is stable.
     """
+    started = set(topic_solved) | set(topic_attempted)
     outstanding = [
         (topic_total[topic] - topic_solved.get(topic, 0), topic)
-        for topic in topic_solved
-        if 0 < topic_solved.get(topic, 0) < topic_total.get(topic, 0)
+        for topic in started
+        if topic_solved.get(topic, 0) < topic_total.get(topic, 0)
     ]
     outstanding.sort(key=lambda item: (-item[0], item[1]))
     return [topic for _remaining, topic in outstanding[:MAX_WEAK_TOPICS]]
@@ -333,7 +354,7 @@ def build_learning_path(
     for stage_entries in by_stage.values():
         stage_entries.sort(key=lambda item: (item.rank, item.problem.id, item.problem.title))
 
-    topic_total, topic_unsolved, topic_solved = _topic_counts(entries)
+    topic_total, topic_unsolved, topic_solved, topic_attempted = _topic_counts(entries)
 
     stages: list[LearningPathStage] = []
     facts_by_topic: dict[str, _StageFacts] = {}
@@ -450,7 +471,7 @@ def build_learning_path(
         stages_complete=sum(1 for stage in stages if stage.state == "complete"),
         current_stage_index=current_index,
         current_stage_title=stages[current_index].title if current_index is not None else None,
-        weak_topics=_weak_topics(topic_total, topic_solved),
+        weak_topics=_weak_topics(topic_total, topic_solved, topic_attempted),
         recommendation=recommendation,
         stages=stages,
     )
