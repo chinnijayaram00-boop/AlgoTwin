@@ -1,0 +1,15 @@
+# Ruff configuration for the repository trees that live outside `backend/`.
+# Ruff discovers a config by walking up from each linted file, so `backend/`
+# keeps using `backend/pyproject.toml` (whose `src = ["."]` resolves to that
+# directory) while `database/` picks this one up here. The rule set mirrors
+# `backend/pyproject.toml` so both trees are linted identically; `src` resolves
+# to the repository root, which is where `database/` already sat when no config
+# applied to it.
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
