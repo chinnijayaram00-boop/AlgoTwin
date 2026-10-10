@@ -157,7 +157,7 @@ def _set_limit(resource, which: int, value: int) -> None:  # pragma: no cover - 
     would make the cap decorative.
     """
     try:
-        current_hard = resource.getrlimit(which)
+        current_hard = resource.getrlimit(which)[1]
         hard = value if current_hard == resource.RLIM_INFINITY else min(value, current_hard)
         resource.setrlimit(which, (value, hard))
     except (OSError, ValueError):

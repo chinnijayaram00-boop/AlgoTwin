@@ -1409,6 +1409,43 @@ def test_the_cpu_allowance_exceeds_the_wall_clock() -> None:
     assert limits.cpu_seconds * 1000 > limits.wall_clock_ms
 
 
+def test_a_resource_limit_reads_the_hard_half_of_the_pair() -> None:
+    """`getrlimit` returns ``(soft, hard)``; the hard half is what bounds the soft one.
+
+    This is asserted with a stand-in for ``resource`` so it runs on every platform,
+    not only the POSIX hosts where the limits are actually applied. The bug it
+    guards against was invisible on Windows -- the ``preexec_fn`` that applies the
+    limits never runs there -- because reading the pair as if it were the hard
+    limit made ``min(value, pair)`` raise, and the only symptom was the opaque
+    ``SubprocessError: Exception occurred in preexec_fn.`` every Python run got on
+    Linux.
+    """
+    from backend.app.judge import worker
+
+    class _FakeResource:
+        RLIM_INFINITY = -1
+        RLIMIT_NOFILE = 7
+        RLIMIT_AS = 9
+
+        def __init__(self, hard: int) -> None:
+            self._hard = hard
+            self.applied: list[tuple[int, tuple[int, int]]] = []
+
+        def getrlimit(self, which: int) -> tuple[int, int]:
+            return (0, self._hard)
+
+        def setrlimit(self, which: int, limits: tuple[int, int]) -> None:
+            self.applied.append((which, limits))
+
+    bounded = _FakeResource(hard=4096)
+    worker._set_limit(bounded, _FakeResource.RLIMIT_NOFILE, 64)
+    assert bounded.applied == [(_FakeResource.RLIMIT_NOFILE, (64, 64))]
+
+    unlimited = _FakeResource(hard=_FakeResource.RLIM_INFINITY)
+    worker._set_limit(unlimited, _FakeResource.RLIMIT_AS, 1024)
+    assert unlimited.applied == [(_FakeResource.RLIMIT_AS, (1024, 1024))]
+
+
 def test_a_problem_reports_its_clamped_limits(client: TestClient, db_session: Session) -> None:
     problem = db_session.scalar(select(Problem).where(Problem.slug == "two-sum"))
     problem.time_limit_ms = 10**9
