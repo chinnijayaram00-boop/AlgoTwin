@@ -46,8 +46,6 @@ import {
  * above them would invite the reader to treat it as one of the facts.
  */
 export default function SubmissionDetail({ submissionId, enabled = true }) {
-  const { data, error, errorStatus, loading, reload } = useSubmissionDetail(submissionId, { enabled });
-
   if (!submissionId) {
     return (
       <EmptyState
@@ -56,6 +54,15 @@ export default function SubmissionDetail({ submissionId, enabled = true }) {
       />
     );
   }
+
+  // The hooked work lives below this guard: with no id there is nothing to
+  // fetch, so mounting the resource here would only leak an empty promise's
+  // state change into the caller's render.
+  return <SubmissionDetailBody enabled={enabled} submissionId={submissionId} />;
+}
+
+function SubmissionDetailBody({ submissionId, enabled }) {
+  const { data, error, errorStatus, loading, reload } = useSubmissionDetail(submissionId, { enabled });
 
   if (loading) {
     return <LoadingState label="Loading this submission" />;
