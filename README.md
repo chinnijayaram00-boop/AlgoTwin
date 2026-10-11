@@ -186,6 +186,8 @@ Backend:
 - `get_current_user` in `backend/app/api/dependencies.py` is the reusable guard. Apply it to every user-specific route. `health` and `health/ready` stay public.
 - `AUTO_CREATE_TABLES=true` and startup also apply an idempotent `users` compatibility upgrade: a legacy table with `display_name` is rebuilt into `name`, `email`, `password_hash`, `created_at`, `updated_at` while preserving existing rows, IDs, and dependent `progress` rows. Legacy rows keep a null `password_hash` and cannot sign in until a password is set.
 - Without a usable `JWT_SECRET_KEY` the auth routes return `503` rather than issuing or trusting anything. "Usable" means non-blank and at least 32 characters: a short secret is brute-forceable offline from one captured token, so it is refused the same way a blank one is.
+- Failed-attempt throttling guards the two unauthenticated endpoints that spend CPU hashing (`/auth/login`, `/auth/register`). It is a fixed-window per-request counter and is **on by default**: set `AUTH_THROTTLE_ENABLED=false` to disable it, or tune `AUTH_MAX_LOGIN_FAILURES`/`AUTH_LOGIN_WINDOW_SECONDS` (per email + client IP) and `AUTH_MAX_REGISTRATIONS`/`AUTH_REGISTER_WINDOW_SECONDS` (per client IP). When a budget is exhausted the attempt answers `429` with a `Retry-After` header. The limiter is per process, so N workers permit roughly N times the budget; a reverse proxy or API gateway should still throttle a public deployment.
+- Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`, and any response to a request that arrived with an `Authorization` header is marked `Cache-Control: no-store` so a browser cannot replay a signed JWT from back-history.
 
 Frontend:
 
@@ -197,7 +199,7 @@ Frontend:
 Limitations:
 
 - Logout is stateless. The client discards the token, but the token itself stays valid until `exp`. Add a revocation list keyed on `jti`, or shorten `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, if strict server-side revocation is required.
-- There is no rate limiting on `/auth/login` or `/auth/register`, no refresh-token rotation, no email verification, and no password reset. A reverse proxy or API gateway should throttle the auth routes before exposing them publicly.
+- There is no refresh-token rotation, no email verification, and no password reset. Login/registration throttling is built in and on by default but per process; a reverse proxy or API gateway should add the global, shared-storage throttle a public deployment wants.
 - `OAuth2PasswordBearer` is configured for the Swagger "Authorize" button, but login accepts a JSON body, so interactive Swagger authorization does not apply.
 
 ## API foundation

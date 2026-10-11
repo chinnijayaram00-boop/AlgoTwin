@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.app.api.dependencies import close_ai_providers
 from backend.app.api.router import api_router
@@ -70,6 +71,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def install_security_headers() -> None:
+    """Add the hardening headers every response carries (see :func:`add_security_headers`).
+
+    A production deployment will want a strict Content-Security-Policy tuned to
+    its own origin, so CSP is deliberately not emitted here. This middleware is
+    registered regardless of whether the process has HTTPS or a reverse proxy;
+    the headers are inert over plain HTTP but become meaningful once the
+    deployment terminates TLS.
+    """
+    app.add_middleware(BaseHTTPMiddleware, dispatch=add_security_headers)
+
+
+async def add_security_headers(request, call_next):
+    """Add `Cache-Control: no-store` for authenticated traffic plus the fixed headers.
+
+    ``no-store`` is the load-bearing one: without it a browser can replay a
+    signed JWT from back-history or a hop cache. It is only set when this
+    request came in authenticated (``Authorization`` header), because the
+    public reads (catalog, health) are cacheable by design.
+    """
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    if request.headers.get("authorization"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
+install_security_headers()
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 

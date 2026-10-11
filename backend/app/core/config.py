@@ -86,6 +86,29 @@ class Settings(BaseSettings):
     # would only be waste. There is no way to set this to zero: the limit is the
     # floor of what a public deployment needs, not a feature to turn off.
     ai_rate_limit_per_minute: int = Field(default=10, ge=1, le=600)
+
+    # Auth throttling. `/auth/login` and `/auth/register` are the two
+    # unauthenticated endpoints that spend CPU on an Argon2id hash for every well
+    # formed request (see `backend/app/api/auth_throttle.py`). The guard is on by
+    # default -- a public deployment should never inherit a guessable login -- and
+    # a deployment that genuinely wants no ceiling sets
+    # `AUTH_THROTTLE_ENABLED=false` explicitly.
+    #
+    # `auth_max_login_failures` and `auth_login_window_seconds` bound failed
+    # logins per (email, client IP). Only failures count, so a matching pair of
+    # users cannot lock a neighbour out; the window bounds how long a block
+    # lasts, so an operator choosing a window of a few minutes trades lockout
+    # length against guess throughput.
+    #
+    # `auth_max_registrations` and `auth_register_window_seconds` bound attempts
+    # per client IP, because registration has no credential to verify and a
+    # retry for an existing address still runs a hash.
+    auth_throttle_enabled: bool = True
+    auth_max_login_failures: int = Field(default=10, ge=1, le=100)
+    auth_login_window_seconds: int = Field(default=900, ge=60, le=86_400)
+    auth_max_registrations: int = Field(default=15, ge=1, le=500)
+    auth_register_window_seconds: int = Field(default=3_600, ge=60, le=86_400)
+
     jwt_secret_key: SecretStr | None = None
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1, le=10080)

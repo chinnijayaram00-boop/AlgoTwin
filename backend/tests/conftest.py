@@ -107,6 +107,22 @@ def settings() -> Settings:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_auth_throttles() -> Iterator[None]:
+    """Clear the process-wide auth throttle around every test.
+
+    The throttle is deliberately shared across requests -- that is what makes it
+    limit anything -- so without this reset one test's attempts would count
+    against the next test's budget and the suite would fail for reasons unrelated
+    to the code under test. Mirrors the limiter isolation the AI tests own.
+    """
+    from backend.app.api.auth_throttle import reset_throttle
+
+    reset_throttle()
+    yield
+    reset_throttle()
+
+
 @pytest.fixture
 def client_with_known_secret(db_engine: Engine) -> Iterator[TestClient]:
     """A client whose accepted JWT secret is :data:`TEST_JWT_SECRET`."""

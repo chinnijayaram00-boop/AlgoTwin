@@ -1,9 +1,10 @@
 from database.models import User
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.app.api.auth_throttle import AuthThrottle, build_auth_throttle
 from backend.app.api.dependencies import AppSettings, CurrentUser, DbSession
 from backend.app.core.config import Settings
 from backend.app.core.security import (
@@ -62,9 +63,14 @@ def _require_jwt_configuration(settings: Settings) -> None:
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(
     payload: RegisterRequest,
+    request: Request,
     db: DbSession,
     settings: AppSettings,
 ) -> AuthResponse:
+    throttle: AuthThrottle = build_auth_throttle(settings)
+    throttle.check_register(request)
+    throttle.record_register(request)
+
     _require_jwt_configuration(settings)
 
     if _find_user_by_email(db, payload.email) is not None:
@@ -96,17 +102,22 @@ def register(
 @router.post("/login", response_model=AuthResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     db: DbSession,
     settings: AppSettings,
 ) -> AuthResponse:
+    throttle: AuthThrottle = build_auth_throttle(settings)
+    throttle.check_login(request, payload.email)
     _require_jwt_configuration(settings)
 
     user = _find_user_by_email(db, payload.email)
     if user is None:
         # Hash anyway so a missing account and a wrong password cost the same.
         verify_password(payload.password, hash_password("algotwin-timing-equalizer"))
+        throttle.record_login_failure(request, payload.email)
         raise _unauthorized()
     if not verify_password(payload.password, user.password_hash):
+        throttle.record_login_failure(request, payload.email)
         raise _unauthorized()
 
     return _issue_session(user, settings)
