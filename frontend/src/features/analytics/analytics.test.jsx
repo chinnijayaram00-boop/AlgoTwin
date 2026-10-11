@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AnalyticsPage from "../../pages/AnalyticsPage";
 import { apiClient } from "../../services/apiClient";
 import { getStoredToken } from "../auth/authStorage";
-import { activeTopics, shortDay, verdictLabel } from "./analyticsFormat";
+import { activeTopics, shortDay, topicAccuracy, verdictLabel } from "./analyticsFormat";
 import { analyticsService } from "./analyticsService";
 import { useAnalytics } from "./useAnalytics";
 
@@ -87,6 +87,10 @@ const TOPICS = [
     attempted: 1,
     not_started: 6,
     completion_percentage: 22.2,
+    submissions: 4,
+    judged: 4,
+    accepted: 3,
+    acceptance_rate: 75,
   },
   {
     topic: "Hash Maps",
@@ -95,6 +99,10 @@ const TOPICS = [
     attempted: 1,
     not_started: 3,
     completion_percentage: 20,
+    submissions: 2,
+    judged: 2,
+    accepted: 1,
+    acceptance_rate: 50,
   },
   {
     topic: "Strings",
@@ -103,6 +111,10 @@ const TOPICS = [
     attempted: 0,
     not_started: 6,
     completion_percentage: 0,
+    submissions: 0,
+    judged: 0,
+    accepted: 0,
+    acceptance_rate: 0,
   },
 ];
 
@@ -113,8 +125,28 @@ const VERDICTS = [
 ];
 
 const ACTIVITY = [
-  { date: "2026-03-14", submissions: 3, attempts: 1, solves: 1 },
-  { date: "2026-03-15", submissions: 0, attempts: 0, solves: 0 },
+  {
+    date: "2026-03-14",
+    submissions: 3,
+    attempts: 1,
+    solves: 1,
+    judged: 2,
+    accepted: 1,
+    wrong_answer: 1,
+    failed: 0,
+    acceptance_rate: 50,
+  },
+  {
+    date: "2026-03-15",
+    submissions: 0,
+    attempts: 0,
+    solves: 0,
+    judged: 0,
+    accepted: 0,
+    wrong_answer: 0,
+    failed: 0,
+    acceptance_rate: null,
+  },
 ];
 
 const LEARNING_PATH = {
@@ -201,12 +233,50 @@ const EMPTY_ANALYTICS = {
     average_runtime_ms: null,
     average_memory_mb: null,
   },
-  difficulty: DIFFICULTY.map((row) => ({ ...row, solved: 0, attempted: 0, not_started: row.total })),
-  topics: TOPICS.map((row) => ({ ...row, solved: 0, attempted: 0, not_started: row.total })),
+  difficulty: DIFFICULTY.map((row) => ({
+    ...row,
+    solved: 0,
+    attempted: 0,
+    not_started: row.total,
+    submissions: 0,
+    judged: 0,
+    accepted: 0,
+    acceptance_rate: 0,
+  })),
+  topics: TOPICS.map((row) => ({
+    ...row,
+    solved: 0,
+    attempted: 0,
+    not_started: row.total,
+    submissions: 0,
+    judged: 0,
+    accepted: 0,
+    acceptance_rate: 0,
+  })),
   verdicts: [],
   activity: [
-    { date: "2026-03-14", submissions: 0, attempts: 0, solves: 0 },
-    { date: "2026-03-15", submissions: 0, attempts: 0, solves: 0 },
+    {
+      date: "2026-03-14",
+      submissions: 0,
+      attempts: 0,
+      solves: 0,
+      judged: 0,
+      accepted: 0,
+      wrong_answer: 0,
+      failed: 0,
+      acceptance_rate: null,
+    },
+    {
+      date: "2026-03-15",
+      submissions: 0,
+      attempts: 0,
+      solves: 0,
+      judged: 0,
+      accepted: 0,
+      wrong_answer: 0,
+      failed: 0,
+      acceptance_rate: null,
+    },
   ],
   learning_path: {
     total_problems: 50,
@@ -339,6 +409,39 @@ describe("analyticsFormat", () => {
     expect(picked.map((row) => row.topic)).toEqual(["Arrays", "Hash Maps"]);
     expect(input[2]).toEqual(TOPICS[2]);
   });
+
+  it("orders topics for practice weakest-first and drops the unjudged", () => {
+    const input = [...TOPICS];
+    const ranked = topicAccuracy(input);
+
+    // Strings has nothing judged, so it has no rate to compare and is left out.
+    expect(ranked.map((row) => row.topic)).toEqual(["Hash Maps", "Arrays"]);
+    expect(ranked[0].acceptance_rate).toBeLessThan(ranked[1].acceptance_rate);
+    expect(input).toEqual(TOPICS);
+  });
+
+  it("breaks acceptance ties toward the topic with more judged evidence", () => {
+    const rows = [
+      { topic: "Alpha", judged: 2, accepted: 1, acceptance_rate: 50 },
+      { topic: "Beta", judged: 8, accepted: 4, acceptance_rate: 50 },
+      { topic: "Gamma", judged: 4, accepted: 3, acceptance_rate: 75 },
+    ];
+
+    expect(topicAccuracy(rows).map((row) => row.topic)).toEqual(["Beta", "Alpha", "Gamma"]);
+  });
+
+  it("honours the limit without mutating the topic list", () => {
+    const rows = [
+      { topic: "A", judged: 1, accepted: 0, acceptance_rate: 0 },
+      { topic: "B", judged: 1, accepted: 1, acceptance_rate: 100 },
+      { topic: "C", judged: 1, accepted: 1, acceptance_rate: 100 },
+    ];
+
+    const ranked = topicAccuracy(rows, 2);
+
+    expect(ranked).toHaveLength(2);
+    expect(rows.map((row) => row.topic)).toEqual(["A", "B", "C"]);
+  });
 });
 
 describe("AnalyticsPage", () => {
@@ -357,7 +460,12 @@ describe("AnalyticsPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Topic coverage" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Submission verdicts" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Acceptance by topic" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
+
+    // Topic acceptance, weakest first, with the judged evidence beside each rate.
+    expect(screen.getByText("1/2 accepted · 50%")).toBeInTheDocument();
+    expect(screen.getByText("3/4 accepted · 75%")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Learning path position" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Mock interview performance" }),
@@ -379,7 +487,9 @@ describe("AnalyticsPage", () => {
     expect(screen.getByText("Valid Palindrome")).toBeInTheDocument();
     expect(screen.getByText(/continue your strings progression/i)).toBeInTheDocument();
     expect(screen.getByText("Current stage: Strings")).toBeInTheDocument();
-    expect(screen.getByText("75%")).toBeInTheDocument();
+    // Scoped to the interview stats: the activity chart's right axis also draws
+    // a "75%" tick, so an unscoped query would now match two elements.
+    expect(screen.getByText("75%", { selector: ".interview-stats strong" })).toBeInTheDocument();
     expect(screen.getByText("1/3")).toBeInTheDocument();
 
     // One read, not a family of requests.
@@ -412,6 +522,7 @@ describe("AnalyticsPage", () => {
       await screen.findByRole("heading", { name: "Mastery by difficulty" }),
     ).toBeInTheDocument();
     expect(screen.getByText("No topic activity yet")).toBeInTheDocument();
+    expect(screen.getByText("No judged submissions by topic yet")).toBeInTheDocument();
     expect(screen.getByText("No submissions yet")).toBeInTheDocument();
     expect(screen.getByText("No activity in this window")).toBeInTheDocument();
     expect(screen.getByText("No mock interviews yet")).toBeInTheDocument();

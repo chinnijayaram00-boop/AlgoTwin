@@ -3,9 +3,10 @@ import { useState } from "react";
 import { EmptyState, ErrorState, LoadingState, PageHeader, SectionCard } from "../components/ui/Feedback";
 import { ActivityChart, DifficultyChart, TopicChart, VerdictChart } from "../features/analytics/AnalyticsCharts";
 import AnalyticsOverview from "../features/analytics/AnalyticsOverview";
-import { activeTopics } from "../features/analytics/analyticsFormat";
+import { activeTopics, topicAccuracy } from "../features/analytics/analyticsFormat";
 import InterviewPanel from "../features/analytics/InterviewPanel";
 import PathSnapshot from "../features/analytics/PathSnapshot";
+import TopicPerformance from "../features/analytics/TopicPerformance";
 import { useAnalytics } from "../features/analytics/useAnalytics";
 
 const WINDOW_OPTIONS = [7, 30, 90];
@@ -45,6 +46,7 @@ function AnalyticsView({ data, days, onDaysChange }) {
     verdicts,
   } = data;
   const topicRows = activeTopics(topics);
+  const accuracyRows = topicAccuracy(topics);
   const hasCatalog = difficulty.some((row) => row.total > 0);
   const hasVerdicts = verdicts.length > 0;
   const hasActivity = activity.some(
@@ -88,6 +90,24 @@ function AnalyticsView({ data, days, onDaysChange }) {
           )}
         </SectionCard>
       </div>
+
+      <SectionCard
+        description={
+          accuracyRows.length
+            ? "Accepted over judged submissions per topic, weakest first — the most productive places to practise next."
+            : "Accepted over judged submissions per topic, once you have judged runs to measure."
+        }
+        title="Acceptance by topic"
+      >
+        {accuracyRows.length ? (
+          <TopicPerformance rows={accuracyRows} />
+        ) : (
+          <EmptyState
+            description="Send code to the judge and the topics you practise will start reporting an acceptance rate."
+            title="No judged submissions by topic yet"
+          />
+        )}
+      </SectionCard>
 
       <div className="analytics-grid">
         <SectionCard

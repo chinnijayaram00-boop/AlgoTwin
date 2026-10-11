@@ -1,11 +1,12 @@
 import {
   Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
+  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -35,6 +36,7 @@ const LEGEND = { color: "#8d9ab5", fontSize: 12 };
 const SOLVED = "#3cc9b0";
 const ATTEMPTED = "#7c6cff";
 const UNTOUCHED = "#33415f";
+const RATE = "#f4bd6a";
 
 /** Palette for verdict slices; distinct hues so a wedge is tellable at a glance. */
 const VERDICT_COLORS = ["#3cc9b0", "#7c6cff", "#f4bd6a", "#f2607e", "#4ea8ff", "#9b8cff", "#65e3ca", "#e0a458", "#8d9ab5"];
@@ -182,22 +184,31 @@ export function VerdictChart({ rows }) {
 }
 
 /**
- * Submissions and solves per day over the window the response says it covers.
- * The dates are pre-shortened here rather than formatted by a tick callback,
- * so the axis and the tooltip always label the same stored day.
+ * The activity series: submissions and solves per day (left axis) with the
+ * day's acceptance rate overlaid as a line (right axis, 0-100%).
+ *
+ * A day with nothing judged has `acceptance_rate: null` and the line simply
+ * breaks there -- `connectNulls` stays off so an unmeasured day reads as a gap,
+ * not as a plunge to zero. The dates are pre-shortened here rather than
+ * formatted by a tick callback, so the axis and the tooltip label the same day.
  */
 export function ActivityChart({ days }) {
   const data = days.map((day) => ({
     date: shortDay(day.date),
     submissions: day.submissions,
     solves: day.solves,
+    judged: day.judged,
+    accepted: day.accepted,
+    wrong_answer: day.wrong_answer,
+    failed: day.failed,
+    acceptance_rate: day.acceptance_rate,
   }));
   const interval = Math.max(0, Math.ceil(data.length / 6) - 1);
 
   return (
     <div className="chart-wrap analytics-chart">
       <ResponsiveContainer height={300} width="100%">
-        <AreaChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
           <defs>
             <linearGradient id="activitySubmissions" x1="0" x2="0" y1="0" y2="1">
               <stop offset="5%" stopColor={ATTEMPTED} stopOpacity={0.45} />
@@ -210,8 +221,23 @@ export function ActivityChart({ days }) {
           </defs>
           <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
           <XAxis axisLine={false} dataKey="date" interval={interval} tick={AXIS} tickLine={false} />
-          <YAxis allowDecimals={false} axisLine={false} tick={AXIS} tickLine={false} />
-          <Tooltip contentStyle={TOOLTIP} />
+          <YAxis
+            allowDecimals={false}
+            axisLine={false}
+            tick={AXIS}
+            tickLine={false}
+            yAxisId="count"
+          />
+          <YAxis
+            axisLine={false}
+            domain={[0, 100]}
+            orientation="right"
+            tick={AXIS}
+            tickFormatter={(value) => `${value}%`}
+            tickLine={false}
+            yAxisId="rate"
+          />
+          <Tooltip content={<ActivityTooltip />} cursor={{ fill: "rgba(124,108,255,0.1)" }} />
           <Legend wrapperStyle={LEGEND} />
           <Area
             dataKey="solves"
@@ -219,6 +245,7 @@ export function ActivityChart({ days }) {
             isAnimationActive={false}
             name="Solved"
             stroke={SOLVED}
+            yAxisId="count"
           />
           <Area
             dataKey="submissions"
@@ -226,9 +253,42 @@ export function ActivityChart({ days }) {
             isAnimationActive={false}
             name="Submissions"
             stroke={ATTEMPTED}
+            yAxisId="count"
           />
-        </AreaChart>
+          <Line
+            connectNulls={false}
+            dataKey="acceptance_rate"
+            dot={false}
+            isAnimationActive={false}
+            name="Acceptance rate"
+            stroke={RATE}
+            strokeWidth={2}
+            type="monotone"
+            yAxisId="rate"
+          />
+        </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** The activity tooltip: the day's counts plus the acceptance split. */
+function ActivityTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0].payload;
+  return (
+    <div style={TOOLTIP}>
+      <strong style={{ display: "block", marginBottom: 6 }}>{label}</strong>
+      <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+        <div>Submissions: {point.submissions}</div>
+        <div>Solved: {point.solves}</div>
+        <div>
+          Accepted: {point.accepted} · Wrong: {point.wrong_answer} · Failed: {point.failed}
+        </div>
+        <div>
+          Acceptance rate: {point.acceptance_rate == null ? "—" : `${point.acceptance_rate}%`}
+        </div>
+      </div>
     </div>
   );
 }

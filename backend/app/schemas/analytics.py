@@ -78,10 +78,19 @@ class DifficultyAnalytics(BaseModel):
 
 
 class TopicAnalytics(BaseModel):
-    """Catalog standing for one topic label.
+    """Catalog standing and submission accuracy for one topic label.
 
-    A problem may carry several topics, so these rows sum to more than the
-    catalog size -- exactly as the progress summary's topic counts do.
+    The first half counts problems (the catalog is the denominator); the second
+    counts that topic's submissions. A problem may carry several topics, so these
+    rows sum to more than the catalog size -- exactly as the progress summary's
+    topic counts do -- and a submission is attributed to every topic of the
+    problem it was sent for, deduplicated within that problem so one submission is
+    never counted twice for the same topic.
+
+    ``acceptance_rate`` is ``accepted / judged`` over that topic's judged
+    submissions. A topic with nothing judged reports ``0.0`` -- there is no rate
+    to state -- and the counts beside it make that visible rather than letting a
+    zero look like a measured failure.
     """
 
     topic: str
@@ -90,6 +99,10 @@ class TopicAnalytics(BaseModel):
     attempted: int
     not_started: int
     completion_percentage: float
+    submissions: int = 0
+    judged: int = 0
+    accepted: int = 0
+    acceptance_rate: float = 0.0
 
 
 class VerdictAnalytics(BaseModel):
@@ -108,17 +121,29 @@ class VerdictAnalytics(BaseModel):
 class ActivityDay(BaseModel):
     """One calendar day inside the requested activity window.
 
-    ``submissions`` counts rows sent to the judge that day, ``solves`` counts
-    problems that reached ``solved`` that day, and ``attempts`` counts problems
-    whose last recorded attempt was that day. All three come from stored
-    timestamps; the series is zero-filled so a quiet day reads as a real zero
-    rather than a gap in the axis.
+    ``submissions`` counts rows sent to the judge that day; of those, ``judged``
+    counts the ones that already carry a verdict, split into ``accepted``,
+    ``wrong_answer``, and ``failed`` (every other judged verdict). ``solves``
+    counts problems that reached ``solved`` that day, and ``attempts`` counts
+    problems whose last recorded attempt was that day. All of them come from
+    stored timestamps; the series is zero-filled so a quiet day reads as a real
+    zero rather than a gap in the axis.
+
+    ``acceptance_rate`` is ``accepted / judged`` for the day -- never over
+    ``submissions``, because a pending row has no verdict to count. On a day with
+    nothing judged it is ``None``: a break in the trend, not a measured zero, so
+    a day with no judged runs cannot look like a collapse in accuracy.
     """
 
     date: date
     submissions: int = 0
     attempts: int = 0
     solves: int = 0
+    judged: int = 0
+    accepted: int = 0
+    wrong_answer: int = 0
+    failed: int = 0
+    acceptance_rate: float | None = None
 
 
 class LearningPathStageAnalytics(BaseModel):

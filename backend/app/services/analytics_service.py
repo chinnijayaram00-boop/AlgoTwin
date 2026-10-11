@@ -20,7 +20,8 @@ overview                      published catalog + progress rows + submissions
 difficulty / topic breakdown  published catalog + progress rows + submissions
 verdicts                      submission statuses, normalized on read
 activity                      ``submitted_at`` / ``last_attempted_at`` /
-                              ``solved_at`` timestamps, zero-filled daily
+                              ``solved_at`` timestamps and per-day verdicts,
+                              zero-filled daily
 learning path                 the real ``build_learning_path`` computation
 interviews                    interview sessions, questions, linked verdicts
 ============================  ==============================================
@@ -70,17 +71,21 @@ from backend.app.schemas.analytics import (
 from backend.app.services import learning_path_service, progress_service
 
 
-def _topics_of(problem: Problem) -> list[str]:
-    """The topic labels of a problem, defensively typed.
+def _topics_from_value(value: object) -> list[str]:
+    """Topic labels coerced out of a raw ``Problem.topics`` JSON value.
 
-    The same coercion the progress and learning path services use, because
-    ``Problem.topics`` is a JSON column: whatever the database holds, the
-    summary has to make a decision from it rather than raise.
+    The same coercion the progress and learning path services use, because the
+    column is JSON: whatever the database holds, the summary has to make a
+    decision from it rather than raise.
     """
-    topics = problem.topics
-    if not isinstance(topics, list):
+    if not isinstance(value, list):
         return []
-    return [str(topic) for topic in topics if isinstance(topic, (str, int, float))]
+    return [str(topic) for topic in value if isinstance(topic, (str, int, float))]
+
+
+def _topics_of(problem: Problem) -> list[str]:
+    """The topic labels of one problem, defensively typed."""
+    return _topics_from_value(problem.topics)
 
 
 def clamp_activity_days(days: int) -> int:
@@ -240,13 +245,21 @@ def build_difficulty_breakdown(
 
 
 def build_topic_breakdown(
-    problems: list[Problem], progress_rows: list[Progress]
+    problems: list[Problem],
+    progress_rows: list[Progress],
+    submissions: list[Submission],
+    topics_by_problem: dict[int, list[str]],
 ) -> list[TopicAnalytics]:
-    """Per-topic catalog standing, alphabetically ordered and totalled.
+    """Per-topic catalog standing and submission accuracy, alphabetically ordered.
 
-    A problem may carry several topics, so the rows sum to more than the
+    A problem may carry several topics, so the catalog rows sum to more than the
     catalog size -- the same convention the progress summary uses, so the two
-    cannot disagree about what a topic count means.
+    cannot disagree about what a topic count means. Submission attribution follows
+    the same rule: a submission is counted for every topic of the problem it was
+    sent for, with the topics deduplicated first so a problem that happens to
+    list one twice still counts it once. A topic that only appears via the
+    learner's submissions (an unpinned or retired problem) still gets a row, with
+    a catalog ``total`` of zero, rather than dropping the evidence.
     """
     status_by_problem = {row.problem_id: normalize_status(row.status) for row in progress_rows}
 
@@ -262,11 +275,31 @@ def build_topic_breakdown(
             elif status == ProgressStatus.ATTEMPTED.value:
                 attempted_by[topic] = attempted_by.get(topic, 0) + 1
 
+    submissions_by: dict[str, int] = {}
+    judged_by: dict[str, int] = {}
+    accepted_by: dict[str, int] = {}
+    for submission in submissions:
+        problem_topics = topics_by_problem.get(submission.problem_id)
+        if not problem_topics:
+            continue
+        status = normalize_submission_status(submission.status)
+        pending = status in PENDING_SUBMISSION_STATUSES
+        accepted = status == SubmissionStatus.ACCEPTED.value
+        for topic in set(problem_topics):
+            submissions_by[topic] = submissions_by.get(topic, 0) + 1
+            if pending:
+                continue
+            judged_by[topic] = judged_by.get(topic, 0) + 1
+            if accepted:
+                accepted_by[topic] = accepted_by.get(topic, 0) + 1
+
     rows: list[TopicAnalytics] = []
-    for topic in sorted(totals):
-        total = totals[topic]
+    for topic in sorted(set(totals) | set(submissions_by)):
+        total = totals.get(topic, 0)
         solved = solved_by.get(topic, 0)
         attempted = attempted_by.get(topic, 0)
+        judged = judged_by.get(topic, 0)
+        accepted = accepted_by.get(topic, 0)
         rows.append(
             TopicAnalytics(
                 topic=topic,
@@ -275,6 +308,10 @@ def build_topic_breakdown(
                 attempted=attempted,
                 not_started=max(total - solved - attempted, 0),
                 completion_percentage=round(solved / total * 100, 2) if total else 0.0,
+                submissions=submissions_by.get(topic, 0),
+                judged=judged,
+                accepted=accepted,
+                acceptance_rate=round(accepted / judged * 100, 2) if judged else 0.0,
             )
         )
     return rows
@@ -322,6 +359,11 @@ def build_activity(
     continuous and a quiet day reads as a zero rather than as a gap. Timestamps
     outside the window -- older history, or a clock that ran ahead -- are
     ignored rather than bent into range.
+
+    Each submission is bucketed by ``submitted_at`` and then split by its stored
+    verdict: a pending row counts toward ``submissions`` but never toward
+    ``judged``, so an unjudged day is a gap in ``acceptance_rate`` (``None``)
+    rather than a fabricated zero.
     """
     window_days = clamp_activity_days(days)
     end = today or utc_now().date()
@@ -341,8 +383,20 @@ def build_activity(
 
     for submission in submissions:
         offset = offset_for(as_utc(submission.submitted_at))
-        if offset is not None:
-            series[offset].submissions += 1
+        if offset is None:
+            continue
+        day = series[offset]
+        day.submissions += 1
+        status = normalize_submission_status(submission.status)
+        if status in PENDING_SUBMISSION_STATUSES:
+            continue
+        day.judged += 1
+        if status == SubmissionStatus.ACCEPTED.value:
+            day.accepted += 1
+        elif status == SubmissionStatus.WRONG_ANSWER.value:
+            day.wrong_answer += 1
+        else:
+            day.failed += 1
 
     for row in progress_rows:
         attempt_offset = offset_for(as_utc(row.last_attempted_at))
@@ -351,6 +405,10 @@ def build_activity(
         solve_offset = offset_for(as_utc(row.solved_at))
         if solve_offset is not None:
             series[solve_offset].solves += 1
+
+    for day in series.values():
+        if day.judged:
+            day.acceptance_rate = round(day.accepted / day.judged * 100, 2)
 
     return [series[offset] for offset in range(window_days)]
 
@@ -481,6 +539,7 @@ def build_summary(
     progress_rows: list[Progress],
     submissions: list[Submission],
     difficulty_by_problem: dict[int, str],
+    topics_by_problem: dict[int, list[str]],
     interviews: list[InterviewSession],
     questions: list[InterviewQuestion],
     days: int = DEFAULT_ACTIVITY_DAYS,
@@ -499,7 +558,9 @@ def build_summary(
         difficulty=build_difficulty_breakdown(
             problems, progress_rows, submissions, difficulty_by_problem
         ),
-        topics=build_topic_breakdown(problems, progress_rows),
+        topics=build_topic_breakdown(
+            problems, progress_rows, submissions, topics_by_problem
+        ),
         verdicts=build_verdict_breakdown(submissions),
         activity=build_activity(progress_rows, submissions, window_days, today=as_of),
         learning_path=build_learning_path_analytics(problems, progress_rows),
@@ -556,22 +617,27 @@ def load_summary(
     )
 
     difficulty_by_problem = {problem.id: problem.difficulty for problem in problems}
+    topics_by_problem = {problem.id: _topics_of(problem) for problem in problems}
     unlabelled = {
         submission.problem_id
         for submission in submissions
         if submission.problem_id not in difficulty_by_problem
     }
     if unlabelled:
-        for problem_id, difficulty in session.execute(
-            select(Problem.id, Problem.difficulty).where(Problem.id.in_(unlabelled))
+        for problem_id, difficulty, topics in session.execute(
+            select(Problem.id, Problem.difficulty, Problem.topics).where(
+                Problem.id.in_(unlabelled)
+            )
         ):
             difficulty_by_problem[problem_id] = difficulty
+            topics_by_problem[problem_id] = _topics_from_value(topics)
 
     return build_summary(
         problems,
         progress_rows,
         submissions,
         difficulty_by_problem,
+        topics_by_problem,
         interviews,
         questions,
         days=days,

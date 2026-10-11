@@ -74,3 +74,24 @@ export function activeTopics(topics, limit = 12) {
     )
     .slice(0, limit);
 }
+
+/**
+ * The topics worth comparing for accuracy: the ones with at least one judged
+ * submission, weakest acceptance rate first, capped at `limit`.
+ *
+ * Only judged topics qualify -- a topic with nothing judged has no rate to
+ * compare, and `0.0` there means "unmeasured", not "failing". Sorting weakest
+ * first turns the list into a practice queue, and ties break toward the topic
+ * with more evidence behind it. The input array is not mutated.
+ */
+export function topicAccuracy(topics, limit = 12) {
+  return topics
+    .filter((row) => row.judged > 0)
+    .sort(
+      (left, right) =>
+        left.acceptance_rate - right.acceptance_rate ||
+        right.judged - left.judged ||
+        left.topic.localeCompare(right.topic),
+    )
+    .slice(0, limit);
+}

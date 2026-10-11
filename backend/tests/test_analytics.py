@@ -23,7 +23,12 @@ from sqlalchemy.orm import Session
 
 from backend.app.schemas.analytics import MAX_ACTIVITY_DAYS, MIN_ACTIVITY_DAYS
 from backend.app.services import analytics_service
-from backend.tests.conftest import CATALOG_BY_DIFFICULTY, CATALOG_SIZE, CATALOG_TOPIC_COUNTS
+from backend.tests.conftest import (
+    CATALOG_BY_DIFFICULTY,
+    CATALOG_SIZE,
+    CATALOG_TOPIC_COUNTS,
+    CATALOG_TOPICS,
+)
 
 ALPHA = {
     "name": "Alpha Learner",
@@ -219,6 +224,10 @@ def test_a_fresh_learner_summarizes_the_published_catalog(client: TestClient) ->
     ]
 
     assert {row["topic"]: row["total"] for row in payload["topics"]} == CATALOG_TOPIC_COUNTS
+    # Every catalog topic is reported, and none of them has been practised yet.
+    for row in payload["topics"]:
+        assert row["submissions"] == row["judged"] == row["accepted"] == 0
+        assert row["acceptance_rate"] == 0.0
     # An empty history has no verdicts to report, rather than nine zero slices.
     assert payload["verdicts"] == []
 
@@ -226,6 +235,12 @@ def test_a_fresh_learner_summarizes_the_published_catalog(client: TestClient) ->
     assert len(payload["activity"]) == 30
     assert all(
         day["submissions"] == day["attempts"] == day["solves"] == 0
+        for day in payload["activity"]
+    )
+    # No judged runs means no rate: the series reports None, not a fake zero.
+    assert all(
+        day["judged"] == day["accepted"] == day["wrong_answer"] == day["failed"] == 0
+        and day["acceptance_rate"] is None
         for day in payload["activity"]
     )
     first = date.fromisoformat(payload["activity"][0]["date"])
@@ -345,6 +360,64 @@ def test_verdicts_and_performance_come_from_stored_submissions(
     assert hard["acceptance_rate"] == 0.0
 
 
+def test_topic_acceptance_attributes_every_submission_to_each_of_its_topics(
+    client: TestClient, db_session: Session
+) -> None:
+    """A submission counts for each topic the problem carries, deduplicated, and
+    the pending one is reported but never judged."""
+    headers = as_learner(client)
+    user = learner_row(db_session, ALPHA["email"])
+    add_submission(db_session, user.id, EASY_SLUG, client, "accepted")
+    add_submission(db_session, user.id, EASY_SLUG, client, "wrong_answer")
+    add_submission(db_session, user.id, EASY_SLUG, client, "queued")
+
+    payload = summary_for(client, headers)
+
+    for topic in CATALOG_TOPICS[EASY_SLUG]:
+        row = topic_row(payload, topic)
+        assert row["submissions"] == 3
+        assert row["judged"] == 2
+        assert row["accepted"] == 1
+        assert row["acceptance_rate"] == 50.0
+
+
+def test_a_topic_with_only_pending_submissions_reports_no_judged_rate(
+    client: TestClient, db_session: Session
+) -> None:
+    headers = as_learner(client)
+    user = learner_row(db_session, ALPHA["email"])
+    add_submission(db_session, user.id, EASY_SLUG, client, "queued")
+
+    payload = summary_for(client, headers)
+
+    for topic in CATALOG_TOPICS[EASY_SLUG]:
+        row = topic_row(payload, topic)
+        assert row["submissions"] == 1
+        assert row["judged"] == 0
+        assert row["accepted"] == 0
+        # Nothing was judged for this topic, so the rate is a stated zero.
+        assert row["acceptance_rate"] == 0.0
+
+
+def test_topic_acceptance_is_owner_scoped(
+    client: TestClient, db_session: Session
+) -> None:
+    alpha = as_learner(client, ALPHA)
+    user = learner_row(db_session, ALPHA["email"])
+    add_submission(db_session, user.id, EASY_SLUG, client, "accepted")
+
+    beta = as_learner(client, BETA)
+    beta_payload = summary_for(client, beta)
+    assert all(row["submissions"] == 0 for row in beta_payload["topics"])
+    assert all(row["judged"] == 0 for row in beta_payload["topics"])
+    assert all(row["acceptance_rate"] == 0.0 for row in beta_payload["topics"])
+
+    # Alpha's own topic evidence is still intact.
+    alpha_payload = summary_for(client, alpha)
+    for topic in CATALOG_TOPICS[EASY_SLUG]:
+        assert topic_row(alpha_payload, topic)["accepted"] == 1
+
+
 def test_a_legacy_status_is_counted_as_failed_like_every_other_reader() -> None:
     """A label outside the vocabulary cannot be stored through the API, but a
     pre-release row could hold one. Every reader in the platform maps it to
@@ -418,8 +491,77 @@ def test_the_activity_window_is_zero_filled_and_bounded_by_today() -> None:
     assert [day.submissions for day in series] == [0, 0, 0, 0, 1, 0, 0]
     assert [day.attempts for day in series] == [0, 0, 0, 0, 0, 0, 1]
     assert [day.solves for day in series] == [1, 0, 0, 0, 0, 0, 0]
+    # The accepted run on the 13th gives that day a real 100% rate; every other
+    # day has nothing judged and reports None rather than 0%.
+    assert [day.judged for day in series] == [0, 0, 0, 0, 1, 0, 0]
+    assert [day.accepted for day in series] == [0, 0, 0, 0, 1, 0, 0]
+    assert series[4].acceptance_rate == 100.0
+    assert all(
+        day.acceptance_rate is None for index, day in enumerate(series) if index != 4
+    )
     # A submission from February is real history, but outside this window.
     assert sum(day.submissions for day in series) == 1
+
+
+def test_the_activity_series_splits_each_day_by_stored_verdict() -> None:
+    """Judged rows split into accepted / wrong_answer / other-failed per day,
+    and the pending row counts as a submission but never as judged."""
+    today = date(2026, 3, 15)
+
+    def made(status: str, when: datetime) -> Submission:
+        return Submission(
+            user_id=1,
+            problem_id=1,
+            language="python",
+            source_code="x",
+            status=status,
+            submitted_at=when,
+        )
+
+    submissions = [
+        made("accepted", datetime(2026, 3, 15, 1, tzinfo=timezone.utc)),
+        made("accepted", datetime(2026, 3, 15, 2, tzinfo=timezone.utc)),
+        made("wrong_answer", datetime(2026, 3, 15, 3, tzinfo=timezone.utc)),
+        made("runtime_error", datetime(2026, 3, 14, 5, tzinfo=timezone.utc)),
+        made("queued", datetime(2026, 3, 15, 4, tzinfo=timezone.utc)),
+    ]
+
+    series = analytics_service.build_activity([], submissions, days=7, today=today)
+    by_date = {day.date: day for day in series}
+
+    day_15 = by_date[date(2026, 3, 15)]
+    assert day_15.submissions == 4
+    assert day_15.judged == 3
+    assert day_15.accepted == 2
+    assert day_15.wrong_answer == 1
+    assert day_15.failed == 0
+    assert day_15.acceptance_rate == round(2 / 3 * 100, 2)
+
+    day_14 = by_date[date(2026, 3, 14)]
+    assert day_14.submissions == 1
+    assert day_14.judged == 1
+    assert day_14.accepted == 0
+    assert day_14.wrong_answer == 0
+    assert day_14.failed == 1
+    assert day_14.acceptance_rate == 0.0
+
+
+def test_a_day_with_only_pending_submissions_has_no_rate() -> None:
+    today = date(2026, 3, 15)
+    pending = Submission(
+        user_id=1,
+        problem_id=1,
+        language="python",
+        source_code="x",
+        status="running",
+        submitted_at=datetime(2026, 3, 15, 6, tzinfo=timezone.utc),
+    )
+
+    series = analytics_service.build_activity([], [pending], days=7, today=today)
+
+    assert series[-1].submissions == 1
+    assert series[-1].judged == 0
+    assert series[-1].acceptance_rate is None
 
 
 def test_a_requested_window_is_clamped_to_the_promised_range() -> None:
@@ -439,6 +581,28 @@ def test_the_summary_carries_the_window_it_actually_used(
     default = summary_for(client, headers)
     assert default["activity_days"] == 30
     assert len(default["activity"]) == 30
+
+
+def test_the_summary_activity_series_carries_the_verdict_split(
+    client: TestClient, db_session: Session
+) -> None:
+    headers = as_learner(client)
+    user = learner_row(db_session, ALPHA["email"])
+    now = datetime.now(timezone.utc)
+    add_submission(db_session, user.id, EASY_SLUG, client, "accepted", submitted_at=now)
+    add_submission(db_session, user.id, EASY_SLUG, client, "wrong_answer", submitted_at=now)
+    add_submission(db_session, user.id, EASY_SLUG, client, "queued", submitted_at=now)
+
+    payload = summary_for(client, headers, days=7)
+    today = payload["activity"][-1]
+    assert today["submissions"] == 3
+    assert today["judged"] == 2
+    assert today["accepted"] == 1
+    assert today["wrong_answer"] == 1
+    assert today["failed"] == 0
+    assert today["acceptance_rate"] == 50.0
+    # The other days in the window have nothing judged.
+    assert all(day["acceptance_rate"] is None for day in payload["activity"][:-1])
 
 
 def test_an_out_of_range_window_is_rejected_not_silently_clamped(
