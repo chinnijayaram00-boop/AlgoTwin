@@ -11,5 +11,8 @@
     "lint:frontend": "npm run lint --workspace frontend",
     "typecheck:frontend": "npm run typecheck --workspace frontend",
     "test:frontend": "npm run test --workspace frontend"
+  },
+  "overrides": {
+    "dompurify": "3.4.16"
   }
 }

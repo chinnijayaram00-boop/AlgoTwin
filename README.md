@@ -106,15 +106,24 @@ npm run build:frontend
 
 `typecheck:frontend` runs TypeScript in JavaScript-check mode; it is intentionally configured so the JavaScript UI remains lightweight while still exposing a repeatable type validation command.
 
+Dependency vulnerability scans (see [SECURITY.md](SECURITY.md)) run in CI and can be run locally:
+
+```powershell
+python -m pip install pip-audit==2.10.1
+python -m pip_audit -r backend/requirements.txt --vulnerability-service osv
+npm ci
+node scripts/audit-npm.mjs --threshold=high
+```
+
 Verified on the current `main`:
 
 | Command | Result |
 | --- | --- |
-| `python -m pytest` | 807 passed |
+| `python -m pytest` | 841 passed |
 | `python -m ruff check backend database` | All checks passed |
 | `npm run lint:frontend` | 0 errors (2 pre-existing warnings) |
 | `npm run typecheck:frontend` | clean |
-| `npm run test:frontend` | 303 passed (17 files) |
+| `npm run test:frontend` | 314 passed (17 files) |
 | `npm run build:frontend` | succeeds, with the chunk-size warning noted below |
 | `git diff --check` | clean |
 
@@ -124,10 +133,11 @@ The learning path endpoint was additionally exercised against a running API at `
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs the checks above on every pull request and on every push to `main`, in two independent jobs so one side cannot mask the other:
+`.github/workflows/ci.yml` runs the checks above on every pull request and on every push to `main`, in three independent jobs so one side cannot mask the other:
 
 - **Backend** — sets up Python 3.12, Node 20 (the judge's JavaScript runtime), and a Temurin JDK 17 (the judge's Java compiler and runtime), installs `backend/requirements.txt`, then runs `python -m ruff check backend database` and `python -m pytest`.
 - **Frontend** — sets up Node 20, runs `npm ci`, then `npm run lint:frontend`, `npm run typecheck:frontend`, `npm run test:frontend`, and `npm run build:frontend`.
+- **Security** — sets up Python 3.12 and Node 20, then scans both dependency trees for known vulnerabilities: `pip-audit` against `backend/requirements.txt` (OSV advisory database) and `scripts/audit-npm.mjs` (a thin `npm audit` gate) against `package-lock.json`. It fails on high/critical Node advisories and on any Python advisory, and uploads both JSON reports as the `dependency-audit-reports` artifact. See [SECURITY.md](SECURITY.md) for the policy and the current findings.
 
 Dependency installation is cached per job (`actions/setup-python` caches pip keyed on `backend/requirements.txt`; `actions/setup-node` caches npm keyed on `package-lock.json`). A new push cancels the superseded run for that branch.
 
@@ -387,6 +397,7 @@ It does not reorder the catalog, invent problems, or decide what counts as solve
 - Hash passwords through `backend/app/core/security.py`; never store or log plaintext credentials.
 - Never execute user-submitted code in the API process. Execution belongs to `backend/app/judge`, and a worker must be started from a deployment that provides a real OS-level boundary.
 - Never log or return `AI_API_KEY`, `JWT_SECRET_KEY`, or other credentials.
+- Fix dependency advisories rather than silencing them. Accept one only through a documented `--ignore` in the CI security job, with a reason; see [SECURITY.md](SECURITY.md). Audit report files (`pip-audit.json`, `npm-audit.json`) are build output and are not committed.
 
 ## Project Status
 Analytics and Performance Intelligence implemented and verified.

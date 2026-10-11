@@ -86,6 +86,11 @@ jobs:
     # runs and the bundle builds, it does not call a live API.
     env:
       VITE_API_URL: http://127.0.0.1:8001/api/v1
+      # `vite build` bundles monaco-editor into one large chunk and needs more
+      # than Node 20's ~2 GB default old space, which otherwise aborts the build
+      # with "JavaScript heap out of memory". The runner has 16 GB, so raising
+      # the ceiling is safe; it changes only the build, not the built output.
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v5
 
@@ -110,3 +115,65 @@ jobs:
 
       - name: Build
         run: npm run build:frontend
+
+  security:
+    name: Dependency vulnerability scan (pip-audit, npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # pip-audit is a CI tool, not an application dependency, so it is pinned
+      # and installed on its own rather than added to backend/requirements.txt.
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit==2.10.1
+
+      # backend/requirements.txt pins direct dependencies as compatibility
+      # ranges (for example `fastapi>=0.115,<1`) and the transitive tree is
+      # resolved by pip, so the audit resolves those ranges against PyPI at run
+      # time. The OSV advisory database is the source (it also backs the PyPI
+      # service) and needs no credential.
+      # pip-audit exits non-zero on any advisory in the resolved environment.
+      # The console output is the readable report; the JSON report is written
+      # separately below so it is produced even when this step fails.
+      - name: pip-audit (Python)
+        run: python -m pip_audit -r backend/requirements.txt --vulnerability-service osv
+
+      - name: pip-audit JSON report
+        if: always()
+        continue-on-error: true
+        run: python -m pip_audit -r backend/requirements.txt --vulnerability-service osv --format=json --output=pip-audit.json
+
+      # Reproducible install from the committed lockfile; npm audit then scans
+      # exactly what `npm ci` put in the tree.
+      - name: Install npm dependencies from the lockfile
+        run: npm ci
+
+      # scripts/audit-npm.mjs is the gate: it fails on high/critical advisories
+      # and prints everything it saw. Accept an advisory only by adding an
+      # `--ignore=<id>@<severity>#<reason>` below, which keeps the decision in
+      # this diff instead of silencing the report.
+      - name: npm audit (Node.js)
+        run: node scripts/audit-npm.mjs --threshold=high --json=npm-audit.json
+
+      - name: Upload dependency audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-reports
+          path: |
+            pip-audit.json
+            npm-audit.json
+          if-no-files-found: ignore
