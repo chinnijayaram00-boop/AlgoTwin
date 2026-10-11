@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,10 +6,38 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.dependencies import close_ai_providers
 from backend.app.api.router import api_router
-from backend.app.core.config import get_settings
+from backend.app.core.config import MIN_JWT_SECRET_LENGTH, Settings, get_settings
+from backend.app.core.security import (
+    AuthenticationConfigurationError,
+    validate_jwt_configuration,
+)
 from backend.app.db.session import init_db
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
+
+
+def warn_if_auth_is_unconfigured(settings: Settings) -> None:
+    """Report an unusable JWT configuration at start-up.
+
+    The auth routes already fail closed with a 503, but a deployment that boots
+    silently and only reveals the problem on the first login wastes the operator's
+    time -- which is exactly how a too-short placeholder in ``.env`` surfaced as
+    "Authentication is not configured." on the sign-in form. This is deliberately a
+    warning rather than an exception: public routes such as health and the catalog
+    must stay available, and the request-time 503 remains the authority. The message
+    never contains the secret itself, only the requirement it failed.
+    """
+    try:
+        validate_jwt_configuration(settings)
+    except AuthenticationConfigurationError:
+        logger.warning(
+            "Authentication is not configured: JWT_SECRET_KEY is missing or shorter "
+            "than %d characters. /api/v1/auth/* will answer 503 until a usable secret "
+            "is set in .env.",
+            MIN_JWT_SECRET_LENGTH,
+        )
 
 
 @asynccontextmanager
@@ -21,6 +50,7 @@ async def lifespan(app: FastAPI):
     ``ResourceWarning``s and connections held past the last request.
     """
     init_db()
+    warn_if_auth_is_unconfigured(settings)
     try:
         yield
     finally:

@@ -325,6 +325,36 @@ describe("LoginPage", () => {
     expect(await screen.findByText("An account with that email already exists.")).toBeInTheDocument();
   });
 
+  it("surfaces the server's authentication-not-configured message", async () => {
+    const notConfigured = new Error("Authentication is not configured.");
+    notConfigured.status = 503;
+    authService.login.mockRejectedValue(notConfigured);
+    const actor = userEvent.setup();
+    renderLogin();
+
+    await actor.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await actor.type(screen.getByLabelText("Password"), "correct-horse-battery-staple");
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("Authentication is not configured.")).toBeInTheDocument();
+    expect(window.localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
+  it("names the API address when the backend cannot be reached", async () => {
+    authService.login.mockRejectedValue(
+      new Error("Could not reach the API at http://127.0.0.1:8001/api/v1/auth/login. Failed to fetch"),
+    );
+    const actor = userEvent.setup();
+    renderLogin();
+
+    await actor.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await actor.type(screen.getByLabelText("Password"), "correct-horse-battery-staple");
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText(/Could not reach the API at/)).toBeInTheDocument();
+    expect(window.localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
   it("links to the register page", async () => {
     renderLogin();
 

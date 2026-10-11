@@ -69,7 +69,7 @@ Generate a signing secret for `.env` before starting the API:
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Set the printed value as `JWT_SECRET_KEY` in `.env` (at least 32 characters). The API refuses to start without it because registration and login cannot issue safe access tokens.
+Set the printed value as `JWT_SECRET_KEY` in `.env` (at least 32 characters). The API still boots without a usable secret so public routes (health, catalog) stay reachable, but it logs an "Authentication is not configured" warning at start-up and every `/api/v1/auth/*` route answers `503` until one is set, because registration and login cannot issue safe access tokens.
 
 On macOS or Linux, activate the environment with `source .venv/bin/activate` and use `cp` instead of `copy`.
 

@@ -4,6 +4,7 @@ Covers registration, login, token issuance/validation, protected-route access,
 logout, and cross-user isolation.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -591,6 +592,75 @@ def test_a_jwt_secret_at_the_minimum_length_is_accepted() -> None:
     assert minimal.jwt_secret == "s" * MIN_JWT_SECRET_LENGTH
     token = create_access_token(7, minimal)
     assert decode_access_token(token, minimal) == 7
+
+
+# The placeholder shipped in the setup instructions. It is shorter than the floor,
+# so leaving it in place is precisely the "Authentication is not configured."
+# regression: the API boots, then refuses every credential with a 503.
+SHIPPED_PLACEHOLDER = "REPLACE_WITH_A_NEW_SECRET"
+
+
+def test_the_shipped_placeholder_secret_is_refused(db_engine) -> None:
+    """The placeholder left by a half-finished setup must fail closed, not sign.
+
+    Regression guard for the login error "Authentication is not configured.": the
+    documented placeholder is shorter than ``MIN_JWT_SECRET_LENGTH``, so it is
+    refused exactly like a blank secret instead of being accepted as a weak key.
+    """
+    assert len(SHIPPED_PLACEHOLDER) < MIN_JWT_SECRET_LENGTH
+
+    with pytest.raises(RuntimeError, match="at least"):
+        Settings(jwt_secret_key=SHIPPED_PLACEHOLDER).jwt_secret
+    with pytest.raises(AuthenticationConfigurationError):
+        validate_jwt_configuration(Settings(jwt_secret_key=SHIPPED_PLACEHOLDER))
+
+    from backend.app.core.config import get_settings
+    from backend.app.db.session import get_db
+    from backend.app.main import app
+
+    with Session(db_engine) as session:
+        seed_demo_data(session)
+
+    def override_get_db():
+        with Session(db_engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        jwt_secret_key=SHIPPED_PLACEHOLDER
+    )
+    try:
+        client = TestClient(app)
+
+        for path, payload in (
+            ("/api/v1/auth/login", {"email": DEMO_USER_EMAIL, "password": DEMO_USER_PASSWORD}),
+            ("/api/v1/auth/register", REGISTRATION),
+        ):
+            response = client.post(path, json=payload)
+            assert response.status_code == 503
+            assert response.json()["detail"] == "Authentication is not configured."
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_an_unusable_jwt_secret_is_reported_at_startup(caplog) -> None:
+    """Start-up names the misconfiguration instead of waiting for the first login."""
+    from backend.app.main import warn_if_auth_is_unconfigured
+
+    with caplog.at_level(logging.WARNING):
+        warn_if_auth_is_unconfigured(Settings(jwt_secret_key=SHIPPED_PLACEHOLDER))
+
+    assert "Authentication is not configured" in caplog.text
+    # The diagnostic points at the setting without disclosing its value.
+    assert SHIPPED_PLACEHOLDER not in caplog.text
+    assert str(MIN_JWT_SECRET_LENGTH) in caplog.text
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        warn_if_auth_is_unconfigured(
+            Settings(jwt_secret_key="s" * MIN_JWT_SECRET_LENGTH)
+        )
+    assert caplog.text == ""
 
 
 # ---------------------------------------------------------- protected behaviour
