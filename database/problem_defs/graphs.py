@@ -3818,6 +3818,363 @@ SPANNING_TREE: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Flood fill
+# --------------------------------------------------------------------------- #
+
+FLOOD_FILL_INPUT = "3 3\n1 1 1\n1 1 0\n1 0 1\n1 1 2"
+
+
+def _flood_fill(stdin: str) -> str:
+    """Repaint the 4-connected region holding the start cell."""
+    values = int_tokens(stdin)
+    rows, cols = values[0], values[1]
+    cells = values[2 : 2 + rows * cols]
+    start_row = values[2 + rows * cols]
+    start_col = values[3 + rows * cols]
+    color = values[4 + rows * cols]
+    grid = [cells[row * cols : (row + 1) * cols] for row in range(rows)]
+    original = grid[start_row][start_col]
+    if original != color:
+        stack = [(start_row, start_col)]
+        grid[start_row][start_col] = color
+        while stack:
+            row, col = stack.pop()
+            for delta_row, delta_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                next_row, next_col = row + delta_row, col + delta_col
+                if 0 <= next_row < rows and 0 <= next_col < cols:
+                    if grid[next_row][next_col] == original:
+                        grid[next_row][next_col] = color
+                        stack.append((next_row, next_col))
+    return "\n".join(" ".join(str(value) for value in row) for row in grid)
+
+
+FLOOD_FILL: dict[str, Any] = {
+    "slug": "flood-fill",
+    "title": "Flood Fill",
+    "summary": "Repaint the connected region of one colour that contains a starting cell.",
+    "difficulty": "Easy",
+    "topics": ["Graphs", "Depth-First Search", "Breadth-First Search", "Grids"],
+    "description": (
+        "You are given a grid of colour numbers. Starting from the cell `(sr, sc)`, "
+        "repaint every cell that is reachable from it by moving up, down, left or "
+        "right through cells of the **same** colour, using a new colour.\n\n"
+        "Return the grid after the fill. Cells of a different colour are never "
+        "crossed, and when the starting cell already has the new colour the grid is "
+        "returned unchanged."
+    ),
+    "input_format": (
+        "Line 1: `rows cols`.\n"
+        "The next `rows` lines each contain `cols` integers, the colour of each cell.\n"
+        "Line rows+2: `sr sc color`, the starting cell and the new colour."
+    ),
+    "output_format": (
+        "Print the `rows` rows of the filled grid, each row's `cols` integers "
+        "separated by single spaces."
+    ),
+    "constraints": (
+        "1 <= rows, cols <= 50 and 0 <= colour <= 9. `0 <= sr < rows` and "
+        "`0 <= sc < cols`, and the new colour may equal the starting colour."
+    ),
+    "examples": [
+        {
+            "input": FLOOD_FILL_INPUT,
+            "output": _flood_fill(FLOOD_FILL_INPUT),
+            "explanation": "From the middle cell the whole connected block of 1s is repainted to 2, while the separate 1 in the bottom-right corner is untouched.",
+        },
+        {
+            "input": "2 3\n0 0 0\n0 0 0\n0 0 0",
+            "output": _flood_fill("2 3\n0 0 0\n0 0 0\n0 0 0"),
+            "explanation": "The new colour equals the old one, so nothing changes.",
+        },
+    ],
+    "hints": [
+        "Every cell that should be repainted is reachable from the start by stepping between equal-coloured neighbours, and nothing else is. Recognising that shape tells you which traversal to use.",
+        "A depth-first or breadth-first search from `(sr, sc)` visits exactly the cells to repaint. Both work; the order they visit cells in does not affect the final grid.",
+        "Remember to record the colour of the starting cell *before* changing anything. Once you repaint the start, you still need the old colour to decide which neighbours belong to the region.",
+        "Guard against the new colour being the same as the old one. Without that guard, a cell you repaint still matches the search colour, so the fill can revisit cells forever.",
+        "Only four neighbours count. Crossing diagonals would repaint cells the statement says are separate, which is the same mistake as merging diagonal land into one island.",
+    ],
+    "explanation": (
+        "The cells to repaint are exactly the connected component containing the "
+        "start, where cells are joined when they are adjacent up, down, left or "
+        "right and share a colour. So a single flood fill from `(sr, sc)` reaches "
+        "every cell that must change and no others.\n\n"
+        "Save the starting cell's colour first. Then explore with a stack or a "
+        "queue: paint the start the new colour and push it, and whenever a cell is "
+        "popped, look at its four neighbours; any neighbour still painted the old "
+        "colour belongs to the region, so paint it and push it. Painting a cell as "
+        "it is discovered is what stops it being pushed twice.\n\n"
+        "Special care is needed when the new colour equals the old one. Then a "
+        "freshly painted cell still matches the old colour, and every neighbour "
+        "check would keep finding it, so the search would loop forever. Returning "
+        "the grid immediately in that case is both correct and necessary.\n\n"
+        "Each cell is painted at most once and inspected a constant number of "
+        "times, so the time is O(rows * cols) and the stack holds O(rows * cols) "
+        "cells in the worst case."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(rows * cols)",
+    "expected_space_complexity": "O(rows * cols)",
+    "time_limit_ms": 3_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def flood_fill(image, sr, sc, color):
+                # Return the image after filling the region containing (sr, sc).
+                return image
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                rows, cols = data[0], data[1]
+                image = [data[2 + r * cols : 2 + (r + 1) * cols] for r in range(rows)]
+                sr = data[2 + rows * cols]
+                sc = data[3 + rows * cols]
+                color = data[4 + rows * cols]
+                result = flood_fill(image, sr, sc, color)
+                for row in result:
+                    print(*row)
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function floodFill(image, sr, sc, color) {
+              // Return the image after filling the region containing (sr, sc).
+              return image;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const rows = data[0];
+              const cols = data[1];
+              const image = [];
+              for (let r = 0; r < rows; r += 1) {
+                image.push(data.slice(2 + r * cols, 2 + (r + 1) * cols));
+              }
+              const sr = data[2 + rows * cols];
+              const sc = data[3 + rows * cols];
+              const color = data[4 + rows * cols];
+              const result = floodFill(image, sr, sc, color);
+              console.log(result.map((row) => row.join(" ")).join("\\n"));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static int[][] floodFill(int[][] image, int sr, int sc, int color) {
+                    // Return the image after filling the region containing (sr, sc).
+                    return image;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int rows = in.nextInt();
+                    int cols = in.nextInt();
+                    int[][] image = new int[rows][cols];
+                    for (int r = 0; r < rows; r += 1) {
+                        for (int c = 0; c < cols; c += 1) {
+                            image[r][c] = in.nextInt();
+                        }
+                    }
+                    int sr = in.nextInt();
+                    int sc = in.nextInt();
+                    int color = in.nextInt();
+                    int[][] result = floodFill(image, sr, sc, color);
+                    for (int r = 0; r < rows; r += 1) {
+                        StringBuilder line = new StringBuilder();
+                        for (int c = 0; c < cols; c += 1) {
+                            if (c > 0) {
+                                line.append(' ');
+                            }
+                            line.append(result[r][c]);
+                        }
+                        System.out.println(line);
+                    }
+                }
+            }
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def flood_fill(image, sr, sc, color):
+                rows = len(image)
+                cols = len(image[0])
+                original = image[sr][sc]
+                if original == color:
+                    return image
+                stack = [(sr, sc)]
+                image[sr][sc] = color
+                while stack:
+                    row, col = stack.pop()
+                    for delta_row, delta_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        next_row, next_col = row + delta_row, col + delta_col
+                        if 0 <= next_row < rows and 0 <= next_col < cols:
+                            if image[next_row][next_col] == original:
+                                image[next_row][next_col] = color
+                                stack.append((next_row, next_col))
+                return image
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                rows, cols = data[0], data[1]
+                image = [data[2 + r * cols : 2 + (r + 1) * cols] for r in range(rows)]
+                sr = data[2 + rows * cols]
+                sc = data[3 + rows * cols]
+                color = data[4 + rows * cols]
+                result = flood_fill(image, sr, sc, color)
+                for row in result:
+                    print(*row)
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function floodFill(image, sr, sc, color) {
+              const rows = image.length;
+              const cols = image[0].length;
+              const original = image[sr][sc];
+              if (original === color) {
+                return image;
+              }
+              const stack = [[sr, sc]];
+              image[sr][sc] = color;
+              const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+              while (stack.length > 0) {
+                const [row, col] = stack.pop();
+                for (const [deltaRow, deltaCol] of directions) {
+                  const nextRow = row + deltaRow;
+                  const nextCol = col + deltaCol;
+                  if (nextRow >= 0 && nextRow < rows && nextCol >= 0 && nextCol < cols) {
+                    if (image[nextRow][nextCol] === original) {
+                      image[nextRow][nextCol] = color;
+                      stack.push([nextRow, nextCol]);
+                    }
+                  }
+                }
+              }
+              return image;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const rows = data[0];
+              const cols = data[1];
+              const image = [];
+              for (let r = 0; r < rows; r += 1) {
+                image.push(data.slice(2 + r * cols, 2 + (r + 1) * cols));
+              }
+              const sr = data[2 + rows * cols];
+              const sc = data[3 + rows * cols];
+              const color = data[4 + rows * cols];
+              const result = floodFill(image, sr, sc, color);
+              console.log(result.map((row) => row.join(" ")).join("\\n"));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.ArrayDeque;
+            import java.util.Deque;
+            import java.util.Scanner;
+
+            public class Main {
+                static int[][] floodFill(int[][] image, int sr, int sc, int color) {
+                    int rows = image.length;
+                    int cols = image[0].length;
+                    int original = image[sr][sc];
+                    if (original == color) {
+                        return image;
+                    }
+                    Deque<int[]> stack = new ArrayDeque<>();
+                    stack.push(new int[] { sr, sc });
+                    image[sr][sc] = color;
+                    int[][] directions = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                    while (!stack.isEmpty()) {
+                        int[] cell = stack.pop();
+                        for (int[] delta : directions) {
+                            int nextRow = cell[0] + delta[0];
+                            int nextCol = cell[1] + delta[1];
+                            if (nextRow >= 0 && nextRow < rows && nextCol >= 0 && nextCol < cols) {
+                                if (image[nextRow][nextCol] == original) {
+                                    image[nextRow][nextCol] = color;
+                                    stack.push(new int[] { nextRow, nextCol });
+                                }
+                            }
+                        }
+                    }
+                    return image;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int rows = in.nextInt();
+                    int cols = in.nextInt();
+                    int[][] image = new int[rows][cols];
+                    for (int r = 0; r < rows; r += 1) {
+                        for (int c = 0; c < cols; c += 1) {
+                            image[r][c] = in.nextInt();
+                        }
+                    }
+                    int sr = in.nextInt();
+                    int sc = in.nextInt();
+                    int color = in.nextInt();
+                    int[][] result = floodFill(image, sr, sc, color);
+                    for (int r = 0; r < rows; r += 1) {
+                        StringBuilder line = new StringBuilder();
+                        for (int c = 0; c < cols; c += 1) {
+                            if (c > 0) {
+                                line.append(' ');
+                            }
+                            line.append(result[r][c]);
+                        }
+                        System.out.println(line);
+                    }
+                }
+            }
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_flood_fill, FLOOD_FILL_INPUT),
+        judged_case(_flood_fill, "2 3\n0 0 0\n0 0 0\n0 0 0"),
+        judged_case(_flood_fill, "2 3\n0 0 0\n0 1 1\n1 1 1"),
+        judged_case(_flood_fill, "1 1\n5\n0 0 7"),
+        judged_case(_flood_fill, "3 3\n1 1 1\n1 1 0\n1 0 1\n0 0 2", is_hidden=True),
+        judged_case(_flood_fill, "2 2\n1 2\n3 4\n0 0 9", is_hidden=True),
+        judged_case(_flood_fill, "3 3\n0 1 0\n1 0 1\n0 1 0\n1 1 2", is_hidden=True),
+    ],
+}
+
+
 GRAPHS_PROBLEMS: list[dict[str, Any]] = [
     CONNECTED_COMPONENTS,
     NUMBER_OF_ISLANDS,
@@ -3829,6 +4186,7 @@ GRAPHS_PROBLEMS: list[dict[str, Any]] = [
     TOPOLOGICAL_ORDER,
     CRITICAL_PATH,
     WEIGHTED_SHORTEST_PATH,
+    FLOOD_FILL,
 ]
 
 __all__ = ["GRAPHS_PROBLEMS"]

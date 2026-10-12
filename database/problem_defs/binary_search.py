@@ -910,8 +910,299 @@ SPLIT_ARRAY_LARGEST_SUM: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Search a 2D matrix
+# --------------------------------------------------------------------------- #
+
+SEARCH_MATRIX_INPUT = "3 4\n1 3 5 7\n10 11 16 20\n23 30 34 60\n3"
+
+
+def _search_matrix(stdin: str) -> str:
+    """Treat the sorted matrix as one long sorted array."""
+    values = int_tokens(stdin)
+    rows, cols = values[0], values[1]
+    flat = values[2 : 2 + rows * cols]
+    target = values[2 + rows * cols]
+    low, high = 0, len(flat) - 1
+    while low <= high:
+        middle = low + (high - low) // 2
+        if flat[middle] == target:
+            return "true"
+        if flat[middle] < target:
+            low = middle + 1
+        else:
+            high = middle - 1
+    return "false"
+
+
+SEARCH_A_2D_MATRIX: dict[str, Any] = {
+    "slug": "search-a-2d-matrix",
+    "title": "Search a 2D Matrix",
+    "summary": "Decide whether a target is present in a matrix whose rows and columns are sorted.",
+    "difficulty": "Medium",
+    "topics": ["Binary Search", "Arrays", "Matrix"],
+    "description": (
+        "You are given a `rows` by `cols` matrix of integers with two ordering "
+        "guarantees: every row is sorted in ascending order, and the first value of "
+        "each row is greater than the last value of the row above.\n\n"
+        "Given a `target`, decide whether it appears anywhere in the matrix. The two "
+        "guarantees mean the whole grid is one sorted sequence read row by row, so a "
+        "target can be located in O(log(rows * cols)) time."
+    ),
+    "input_format": (
+        "Line 1: `rows cols`.\n"
+        "The next `rows` lines each contain `cols` integers, one sorted row.\n"
+        "Line rows+2: `target`."
+    ),
+    "output_format": "Print `true` if the target appears in the matrix, otherwise `false`, in lower case.",
+    "constraints": (
+        "1 <= rows, cols <= 100 and -10^4 <= matrix[r][c], target <= 10^4. Each row "
+        "is non-decreasing, and every value in a row is greater than every value in "
+        "the row above it."
+    ),
+    "examples": [
+        {
+            "input": SEARCH_MATRIX_INPUT,
+            "output": _search_matrix(SEARCH_MATRIX_INPUT),
+            "explanation": "3 sits at row 0, column 1.",
+        },
+        {
+            "input": "3 4\n1 3 5 7\n10 11 16 20\n23 30 34 60\n13",
+            "output": _search_matrix("3 4\n1 3 5 7\n10 11 16 20\n23 30 34 60\n13"),
+            "explanation": "13 falls between 11 and 16 but is not present, so the search ends with nothing left to examine.",
+        },
+    ],
+    "hints": [
+        "A linear scan of every cell works but ignores both guarantees. What does the combination of sorted rows and ordered rows tell you about the grid read from left to right, top to bottom?",
+        "Read row by row, the matrix is one non-decreasing sequence of `rows * cols` values. That is a plain sorted array in disguise.",
+        "Binary search its length. The only new part is turning a flat index `middle` back into a cell: the row is `middle // cols` and the column is `middle % cols`.",
+        "The two guarantees are what make the flat sequence sorted. Without them, a value in a row could sit below the previous row's last value and the binary search would be invalid, which is exactly why the statement includes them.",
+        "You can also search twice -- once down the first column to choose a row, then across that row -- which is also O(log(rows * cols)). The single flat search is shorter to write and has the same bound.",
+    ],
+    "explanation": (
+        "The two ordering guarantees stitch the rows into one sorted list. Write "
+        "the matrix out row by row and every value is at least as large as the one "
+        "before it, because each row is sorted and each row starts above the "
+        "previous row's end. That list is what binary search expects.\n\n"
+        "Binary search over the flat index range `0..rows * cols - 1`. For a middle "
+        "index, the row is `middle // cols` and the column is `middle % cols`, so "
+        "the comparison reads `matrix[middle // cols][middle % cols]`. A match "
+        "returns true; a smaller value moves `low` up and a larger one moves `high` "
+        "down, exactly as in a one-dimensional search.\n\n"
+        "Each step halves the range, so there are O(log(rows * cols)) steps, and "
+        "only a couple of integers are kept, so the extra space is O(1)."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(log(rows * cols))",
+    "expected_space_complexity": "O(1)",
+    "time_limit_ms": 5_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def search_matrix(matrix, target):
+                \"\"\"Return True when target appears in the sorted matrix.\"\"\"
+                return False
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                rows, cols = data[0], data[1]
+                matrix = [data[2 + r * cols : 2 + (r + 1) * cols] for r in range(rows)]
+                target = data[2 + rows * cols]
+                print("true" if search_matrix(matrix, target) else "false")
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function searchMatrix(matrix, target) {
+              // Return true when target appears in the sorted matrix.
+              return false;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const rows = data[0];
+              const cols = data[1];
+              const matrix = [];
+              for (let r = 0; r < rows; r += 1) {
+                matrix.push(data.slice(2 + r * cols, 2 + (r + 1) * cols));
+              }
+              const target = data[2 + rows * cols];
+              console.log(searchMatrix(matrix, target) ? "true" : "false");
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static boolean searchMatrix(int[][] matrix, int target) {
+                    // Return true when target appears in the sorted matrix.
+                    return false;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int rows = in.nextInt();
+                    int cols = in.nextInt();
+                    int[][] matrix = new int[rows][cols];
+                    for (int r = 0; r < rows; r += 1) {
+                        for (int c = 0; c < cols; c += 1) {
+                            matrix[r][c] = in.nextInt();
+                        }
+                    }
+                    int target = in.nextInt();
+                    System.out.println(searchMatrix(matrix, target) ? "true" : "false");
+                }
+            }
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def search_matrix(matrix, target):
+                rows = len(matrix)
+                cols = len(matrix[0])
+                low = 0
+                high = rows * cols - 1
+                while low <= high:
+                    middle = low + (high - low) // 2
+                    value = matrix[middle // cols][middle % cols]
+                    if value == target:
+                        return True
+                    if value < target:
+                        low = middle + 1
+                    else:
+                        high = middle - 1
+                return False
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                rows, cols = data[0], data[1]
+                matrix = [data[2 + r * cols : 2 + (r + 1) * cols] for r in range(rows)]
+                target = data[2 + rows * cols]
+                print("true" if search_matrix(matrix, target) else "false")
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function searchMatrix(matrix, target) {
+              const rows = matrix.length;
+              const cols = matrix[0].length;
+              let low = 0;
+              let high = rows * cols - 1;
+              while (low <= high) {
+                const middle = low + Math.floor((high - low) / 2);
+                const value = matrix[Math.floor(middle / cols)][middle % cols];
+                if (value === target) {
+                  return true;
+                }
+                if (value < target) {
+                  low = middle + 1;
+                } else {
+                  high = middle - 1;
+                }
+              }
+              return false;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const rows = data[0];
+              const cols = data[1];
+              const matrix = [];
+              for (let r = 0; r < rows; r += 1) {
+                matrix.push(data.slice(2 + r * cols, 2 + (r + 1) * cols));
+              }
+              const target = data[2 + rows * cols];
+              console.log(searchMatrix(matrix, target) ? "true" : "false");
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static boolean searchMatrix(int[][] matrix, int target) {
+                    int rows = matrix.length;
+                    int cols = matrix[0].length;
+                    int low = 0;
+                    int high = rows * cols - 1;
+                    while (low <= high) {
+                        int middle = low + (high - low) / 2;
+                        int value = matrix[middle / cols][middle % cols];
+                        if (value == target) {
+                            return true;
+                        }
+                        if (value < target) {
+                            low = middle + 1;
+                        } else {
+                            high = middle - 1;
+                        }
+                    }
+                    return false;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int rows = in.nextInt();
+                    int cols = in.nextInt();
+                    int[][] matrix = new int[rows][cols];
+                    for (int r = 0; r < rows; r += 1) {
+                        for (int c = 0; c < cols; c += 1) {
+                            matrix[r][c] = in.nextInt();
+                        }
+                    }
+                    int target = in.nextInt();
+                    System.out.println(searchMatrix(matrix, target) ? "true" : "false");
+                }
+            }
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_search_matrix, SEARCH_MATRIX_INPUT),
+        judged_case(_search_matrix, "3 4\n1 3 5 7\n10 11 16 20\n23 30 34 60\n13"),
+        judged_case(_search_matrix, "1 1\n1\n1"),
+        judged_case(_search_matrix, "1 3\n1 2 3\n3"),
+        judged_case(_search_matrix, "1 3\n1 2 3\n4", is_hidden=True),
+        judged_case(_search_matrix, "3 4\n1 3 5 7\n10 11 16 20\n23 30 34 60\n60", is_hidden=True),
+        judged_case(_search_matrix, "2 2\n-5 -3\n1 4\n-3", is_hidden=True),
+        judged_case(_search_matrix, "3 3\n1 4 7\n10 13 16\n19 22 25\n26", is_hidden=True),
+    ],
+}
+
+
 BINARY_SEARCH_PROBLEMS: tuple[dict[str, Any], ...] = (
     SEARCH_ROTATED_SORTED_ARRAY,
     FIND_FIRST_AND_LAST_POSITION,
     SPLIT_ARRAY_LARGEST_SUM,
+    SEARCH_A_2D_MATRIX,
 )

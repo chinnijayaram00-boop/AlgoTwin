@@ -1144,9 +1144,242 @@ COUNT_STRING_SEGMENTATIONS: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# House robber
+# --------------------------------------------------------------------------- #
+
+HOUSE_ROBBER_INPUT = "4\n1 2 3 1"
+
+
+def _house_robber(stdin: str) -> str:
+    """Two rolling values: the best total with and without the current house."""
+    values = int_tokens(stdin)
+    n = values[0]
+    houses = values[1 : 1 + n]
+    two_back = 0
+    one_back = 0
+    for money in houses:
+        two_back, one_back = one_back, max(one_back, two_back + money)
+    return str(one_back)
+
+
+HOUSE_ROBBER: dict[str, Any] = {
+    "slug": "house-robber",
+    "title": "House Robber",
+    "summary": "Maximise the haul from a street of houses without robbing two in a row.",
+    "difficulty": "Medium",
+    "topics": ["Dynamic Programming", "Arrays"],
+    "description": (
+        "A row of houses each holds some money. You want the largest total you can "
+        "take, but the alarm links adjacent houses: robbing two neighbouring houses "
+        "on the same night sets it off.\n\n"
+        "Choose a set of houses with no two adjacent, and return the most money "
+        "such a set holds. All amounts are non-negative."
+    ),
+    "input_format": (
+        "Line 1: `n`, the number of houses.\n"
+        "Line 2: `n` integers, the money in each house from left to right."
+    ),
+    "output_format": "Print the largest total that avoids robbing two adjacent houses.",
+    "constraints": "1 <= n <= 10^5 and 0 <= money <= 10^4.",
+    "examples": [
+        {
+            "input": HOUSE_ROBBER_INPUT,
+            "output": _house_robber(HOUSE_ROBBER_INPUT),
+            "explanation": "Robbing the first and third houses takes 1 + 3 = 4, which beats every other legal choice.",
+        },
+        {
+            "input": "5\n2 7 9 3 1",
+            "output": _house_robber("5\n2 7 9 3 1"),
+            "explanation": "Taking the second, third and fifth houses gives 7 + 9 + 1 = 17; skipping the third to take the second and fourth gives only 10.",
+        },
+    ],
+    "hints": [
+        "Decide about the houses left to right. At each house the only thing that matters is whether you took the previous one, so the state can be just that yes/no.",
+        "Let `best[i]` be the most you can take from the first `i` houses. Either you skip house `i`, keeping `best[i-1]`, or you take it and add it to `best[i-2]`.",
+        "You do not need the whole table. `best[i]` depends only on the two previous values, so two variables updated together in the loop are enough.",
+        "The recurrence `best[i] = max(best[i-1], best[i-2] + money[i])` already handles a long gap: `best[i-2]` is the best over all earlier choices, not just the house two back.",
+        "Watch the base cases. With no houses the answer is 0, and for one house it is that house's money; starting both rolling values at 0 gets both right without a special case.",
+    ],
+    "explanation": (
+        "Sweep the street from left to right. For the first `i` houses, the best haul "
+        "comes from one of two decisions about house `i`: skip it, in which case the "
+        "answer is the best haul from the first `i - 1` houses, or take it, in which "
+        "case house `i - 1` must be skipped and the answer is house `i`'s money plus "
+        "the best haul from the first `i - 2` houses. Taking the larger of the two "
+        "gives the recurrence `best[i] = max(best[i-1], best[i-2] + money[i])`.\n\n"
+        "The key point is why the recurrence is complete despite needing at most one "
+        "house's break. `best[i-2]` is itself the optimum over all legal choices "
+        "among the first `i - 2` houses, so it already accounts for any earlier gaps; "
+        "there is no need to remember which houses were chosen, only the running "
+        "totals.\n\n"
+        "Because `best[i]` depends only on the two preceding values, the whole table "
+        "collapses to two variables advanced together, keeping `two_back = "
+        "best[i-2]` and `one_back = best[i-1]`. Both start at 0, which yields the "
+        "correct answers for zero and one house without special cases. Each house is "
+        "processed once, so the time is O(n) and the extra space is O(1)."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(n)",
+    "expected_space_complexity": "O(1)",
+    "time_limit_ms": 5_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def rob(houses):
+                # Return the largest total with no two adjacent houses.
+                return 0
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(rob(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function rob(houses) {
+              // Return the largest total with no two adjacent houses.
+              return 0;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(rob(data.slice(1, 1 + n)));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static long rob(int[] houses) {
+                    // Return the largest total with no two adjacent houses.
+                    return 0;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] houses = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        houses[i] = in.nextInt();
+                    }
+                    System.out.println(rob(houses));
+                }
+            }
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def rob(houses):
+                two_back = 0
+                one_back = 0
+                for money in houses:
+                    two_back, one_back = one_back, max(one_back, two_back + money)
+                return one_back
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(rob(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function rob(houses) {
+              let twoBack = 0;
+              let oneBack = 0;
+              for (const money of houses) {
+                const take = twoBack + money;
+                twoBack = oneBack;
+                oneBack = Math.max(oneBack, take);
+              }
+              return oneBack;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(rob(data.slice(1, 1 + n)));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static long rob(int[] houses) {
+                    long twoBack = 0;
+                    long oneBack = 0;
+                    for (int money : houses) {
+                        long take = twoBack + money;
+                        twoBack = oneBack;
+                        oneBack = Math.max(oneBack, take);
+                    }
+                    return oneBack;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] houses = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        houses[i] = in.nextInt();
+                    }
+                    System.out.println(rob(houses));
+                }
+            }
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_house_robber, HOUSE_ROBBER_INPUT),
+        judged_case(_house_robber, "1\n5"),
+        judged_case(_house_robber, "2\n2 3"),
+        judged_case(_house_robber, "5\n2 7 9 3 1"),
+        judged_case(_house_robber, "3\n2 7 9", is_hidden=True),
+        judged_case(_house_robber, "5\n5 1 1 5 1", is_hidden=True),
+        judged_case(_house_robber, "4\n0 0 0 0", is_hidden=True),
+        judged_case(_house_robber, "6\n2 1 1 9 1 1", is_hidden=True),
+    ],
+}
+
+
 DYNAMIC_PROGRAMMING_PROBLEMS: tuple[dict[str, Any], ...] = (
     LONGEST_INCREASING_SUBSEQUENCE,
     LONGEST_COMMON_SUBSEQUENCE,
     EDIT_DISTANCE,
     COUNT_STRING_SEGMENTATIONS,
+    HOUSE_ROBBER,
 )

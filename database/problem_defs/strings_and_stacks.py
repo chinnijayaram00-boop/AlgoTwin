@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from database.problem_spec import judged_case, source, text_lines
+from database.problem_spec import int_tokens, judged_case, source, text_lines
 
 # --------------------------------------------------------------------------- #
 # Valid Parentheses
@@ -659,8 +659,419 @@ WORD_SEARCH: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Longest repeating character replacement
+# --------------------------------------------------------------------------- #
+
+
+def _character_replacement(stdin: str) -> str:
+    """A sliding window that stays valid while it needs at most k changes."""
+    lines = text_lines(stdin)
+    sequence = lines[1] if len(lines) > 1 else ""
+    k = int(lines[2]) if len(lines) > 2 else 0
+    counts: dict[str, int] = {}
+    left = 0
+    best = 0
+    most = 0
+    for right, character in enumerate(sequence):
+        counts[character] = counts.get(character, 0) + 1
+        most = max(most, counts[character])
+        # The window is valid when every character but the most common one can be
+        # changed within the budget: length - most <= k.
+        while (right - left + 1) - most > k:
+            counts[sequence[left]] -= 1
+            left += 1
+        best = max(best, right - left + 1)
+    return str(best)
+
+
+CHARACTER_REPLACEMENT_INPUT = "4\nABAB\n2"
+
+
+LONGEST_REPEATING_CHARACTER_REPLACEMENT: dict[str, Any] = {
+    "slug": "longest-repeating-character-replacement",
+    "title": "Longest Repeating Character Replacement",
+    "summary": "Find the longest stretch that can be made all one letter within a budget of changes.",
+    "difficulty": "Medium",
+    "topics": ["Strings", "Sliding Window", "Hash Maps"],
+    "description": (
+        "You are given a string `s` of upper-case letters and an integer `k`. You "
+        "may change at most `k` characters to any other upper-case letter.\n\n"
+        "Return the length of the longest substring that can be turned into a run "
+        "of a single repeated letter using at most `k` changes. A substring is a "
+        "contiguous part of the string."
+    ),
+    "input_format": (
+        "Line 1: `n`, the length of the string.\n"
+        "Line 2: the string of `n` upper-case letters, with no spaces.\n"
+        "Line 3: `k`, the number of changes allowed."
+    ),
+    "output_format": "Print the length of the longest substring that can be made all one letter.",
+    "constraints": (
+        "1 <= n <= 10^5, 0 <= k <= n, and `s` contains only upper-case English "
+        "letters."
+    ),
+    "examples": [
+        {
+            "input": CHARACTER_REPLACEMENT_INPUT,
+            "output": _character_replacement(CHARACTER_REPLACEMENT_INPUT),
+            "explanation": "Change the two `A`s to `B`s (or the reverse) and the whole length-4 string becomes one letter.",
+        },
+        {
+            "input": "7\nAABABBA\n1",
+            "output": _character_replacement("7\nAABABBA\n1"),
+            "explanation": "The window `AABA` needs only one change and has length 4; a longer window needs more than one.",
+        },
+    ],
+    "hints": [
+        "A substring that can become all one letter has a fixed shape: if the letter it becomes appears `c` times and the window is `w` long, then `w - c` characters must change, and that count must be at most `k`.",
+        "The best window is contiguous and grows at one end and shrinks at the other, which is a sliding window. Keep the right end moving forward one character at a time.",
+        "Maintain the number of times each letter occurs inside the window, and remember the largest count any single letter reaches. The window is affordable while `length - largest <= k`.",
+        "When the window becomes unaffordable, move the left end forward, removing the character that leaves, until it is affordable again. The window may be too short now, but that is fine: only the largest length seen matters.",
+        "The largest single-letter count never has to be decreased. If it can only be updated upward, the window never shrinks below the best length already found, so the answer is simply that best length.",
+    ],
+    "explanation": (
+        "A window can be turned into one repeated letter by changing every "
+        "character that is not the window's most common letter. If the window is "
+        "`w` characters long and its most common letter appears `c` times, that is "
+        "`w - c` changes, so the window is affordable exactly when `w - c <= k`.\n\n"
+        "Grow a window by moving `right` forward one character at a time and adding "
+        "that character to a count map. Track `most`, the largest count any letter "
+        "reaches in the window. While `w - most > k`, advance `left`, removing "
+        "characters from the map, until the window is affordable again. After each "
+        "step the current length is a candidate answer, and the largest it ever "
+        "reaches is the result.\n\n"
+        "`most` is never decreased. The count it records may not match the current "
+        "window exactly, but it is always a lower bound on the best count a letter "
+        "could reach in any window at least as long, so it can only make the check "
+        "more permissive in a way that never overstates the answer: the window "
+        "still shrinks to the true maximum. Each index enters and leaves the window "
+        "at most once, so the time is O(n) and the count map is O(1) because the "
+        "alphabet is fixed."
+    ),
+    "supported_languages": ["python", "javascript"],
+    "expected_time_complexity": "O(n)",
+    "expected_space_complexity": "O(1)",
+    "time_limit_ms": 2_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def character_replacement(s, k):
+                \"\"\"Return the longest substring that k changes can make uniform.\"\"\"
+                return 0
+
+
+            def main():
+                lines = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+                print(character_replacement(lines[1], int(lines[2])))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function characterReplacement(s, k) {
+              // Return the longest substring that k changes can make uniform.
+              return 0;
+            }
+
+            function main() {
+              const lines = fs
+                .readFileSync(0, "utf8")
+                .split(/\\r?\\n/)
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0);
+              console.log(characterReplacement(lines[1], Number(lines[2])));
+            }
+
+            main();
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def character_replacement(s, k):
+                counts = {}
+                left = 0
+                best = 0
+                most = 0
+                for right, character in enumerate(s):
+                    counts[character] = counts.get(character, 0) + 1
+                    most = max(most, counts[character])
+                    while (right - left + 1) - most > k:
+                        counts[s[left]] -= 1
+                        left += 1
+                    best = max(best, right - left + 1)
+                return best
+
+
+            def main():
+                lines = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+                print(character_replacement(lines[1], int(lines[2])))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function characterReplacement(s, k) {
+              const counts = new Map();
+              let left = 0;
+              let best = 0;
+              let most = 0;
+              for (let right = 0; right < s.length; right += 1) {
+                const character = s[right];
+                const next = (counts.get(character) || 0) + 1;
+                counts.set(character, next);
+                most = Math.max(most, next);
+                while (right - left + 1 - most > k) {
+                  counts.set(s[left], counts.get(s[left]) - 1);
+                  left += 1;
+                }
+                best = Math.max(best, right - left + 1);
+              }
+              return best;
+            }
+
+            function main() {
+              const lines = fs
+                .readFileSync(0, "utf8")
+                .split(/\\r?\\n/)
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0);
+              console.log(characterReplacement(lines[1], Number(lines[2])));
+            }
+
+            main();
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_character_replacement, CHARACTER_REPLACEMENT_INPUT),
+        judged_case(_character_replacement, "7\nAABABBA\n1"),
+        judged_case(_character_replacement, "1\nA\n0"),
+        judged_case(_character_replacement, "5\nAAAAA\n0"),
+        judged_case(_character_replacement, "6\nAAABBB\n3"),
+        judged_case(_character_replacement, "4\nABCD\n1", is_hidden=True),
+        judged_case(_character_replacement, "5\nBAAAB\n2", is_hidden=True),
+        judged_case(_character_replacement, "9\nABBBBBAAB\n2", is_hidden=True),
+    ],
+}
+
+
+# --------------------------------------------------------------------------- #
+# Daily temperatures
+# --------------------------------------------------------------------------- #
+
+
+def _daily_temperatures(stdin: str) -> str:
+    """A monotonic stack of indexes still waiting for a warmer day."""
+    values = int_tokens(stdin)
+    n = values[0]
+    temperatures = values[1 : 1 + n]
+    answer = [0] * n
+    stack: list[int] = []
+    for index, temperature in enumerate(temperatures):
+        while stack and temperatures[stack[-1]] < temperature:
+            previous = stack.pop()
+            answer[previous] = index - previous
+        stack.append(index)
+    return " ".join(str(value) for value in answer)
+
+
+DAILY_TEMPERATURES_INPUT = "8\n73 74 75 71 69 72 76 73"
+
+
+DAILY_TEMPERATURES: dict[str, Any] = {
+    "slug": "daily-temperatures",
+    "title": "Daily Temperatures",
+    "summary": "For each day, count the days until a warmer one arrives.",
+    "difficulty": "Medium",
+    "topics": ["Stack", "Arrays"],
+    "description": (
+        "You are given a list of `n` daily temperatures. For each day, find how "
+        "many days you would have to wait until a day with a strictly higher "
+        "temperature. If no warmer day ever comes, the answer for that day is 0.\n\n"
+        "Print the `n` waiting times in the original day order, separated by single "
+        "spaces."
+    ),
+    "input_format": "Line 1: `n`, the number of days.\nLine 2: `n` integers, the temperature on each day.",
+    "output_format": "Print `n` integers in day order, the days to wait for a warmer temperature.",
+    "constraints": (
+        "1 <= n <= 10^5 and 0 <= temperatures[i] <= 100. A day is only warmed by a "
+        "day with a strictly higher temperature, not an equal one."
+    ),
+    "examples": [
+        {
+            "input": DAILY_TEMPERATURES_INPUT,
+            "output": _daily_temperatures(DAILY_TEMPERATURES_INPUT),
+            "explanation": "Day 2 (75) waits 4 days for the 76, while the last two days never get a warmer one, so they are 0.",
+        },
+        {
+            "input": "4\n30 40 50 60",
+            "output": _daily_temperatures("4\n30 40 50 60"),
+            "explanation": "Each day is colder than the next, so every day waits exactly one day and the last is 0.",
+        },
+    ],
+    "hints": [
+        "Comparing every day with every later day is O(n^2). Which earlier days does one new day resolve all at once?",
+        "A new, warmer day resolves every earlier day still waiting for a warmer one. Those waiting days are exactly the ones you need to keep in a structure.",
+        "Keep the indexes of days that are still waiting, in a stack. The stack holds only days whose temperature decreases from bottom to top, which is why it is called monotonic.",
+        "When day `i` arrives, pop every waiting day whose temperature is lower than `temperatures[i]`, and record the wait for each popped day as `i - index`. Then push `i`.",
+        "Use indexing, not temperatures, in the stack. The index gives both the comparison and the distance, and days with equal temperatures must not resolve each other.",
+    ],
+    "explanation": (
+        "The days still waiting for a warmer one always form a decreasing run of "
+        "temperatures, because any day warmer than an earlier waiting day would "
+        "already have resolved it. That structure is exactly a stack: push each new "
+        "day onto the top, and the stack stays decreasing from bottom to top.\n\n"
+        "For each day `i`, while the stack is not empty and the temperature on top "
+        "is lower than `temperatures[i]`, pop that index and set its answer to `i` "
+        "minus the index: that is the number of days it waited. Then push `i`. Days "
+        "left on the stack at the end never see a warmer day, and their answers stay "
+        "0.\n\n"
+        "Storing indexes rather than temperatures matters for two reasons: the "
+        "distance needs the index, and the comparison `temperatures[top] < "
+        "temperatures[i]` is strict, so days of equal temperature do not resolve "
+        "each other. Every index is pushed once and popped at most once, so the time "
+        "is O(n) and the stack holds at most n indexes."
+    ),
+    "supported_languages": ["python", "javascript"],
+    "expected_time_complexity": "O(n)",
+    "expected_space_complexity": "O(n)",
+    "time_limit_ms": 2_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def daily_temperatures(temperatures):
+                \"\"\"Return the wait for a warmer day for each day.\"\"\"
+                return []
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(*daily_temperatures(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function dailyTemperatures(temperatures) {
+              // Return the wait for a warmer day for each day.
+              return [];
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(dailyTemperatures(data.slice(1, 1 + n)).join(" "));
+            }
+
+            main();
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def daily_temperatures(temperatures):
+                n = len(temperatures)
+                answer = [0] * n
+                stack = []
+                for index, temperature in enumerate(temperatures):
+                    while stack and temperatures[stack[-1]] < temperature:
+                        previous = stack.pop()
+                        answer[previous] = index - previous
+                    stack.append(index)
+                return answer
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(*daily_temperatures(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function dailyTemperatures(temperatures) {
+              const n = temperatures.length;
+              const answer = new Array(n).fill(0);
+              const stack = [];
+              for (let index = 0; index < n; index += 1) {
+                while (
+                  stack.length > 0 &&
+                  temperatures[stack[stack.length - 1]] < temperatures[index]
+                ) {
+                  const previous = stack.pop();
+                  answer[previous] = index - previous;
+                }
+                stack.push(index);
+              }
+              return answer;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(dailyTemperatures(data.slice(1, 1 + n)).join(" "));
+            }
+
+            main();
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_daily_temperatures, DAILY_TEMPERATURES_INPUT),
+        judged_case(_daily_temperatures, "4\n30 40 50 60"),
+        judged_case(_daily_temperatures, "3\n90 80 70"),
+        judged_case(_daily_temperatures, "1\n50"),
+        judged_case(_daily_temperatures, "5\n50 50 50 50 50", is_hidden=True),
+        judged_case(_daily_temperatures, "5\n1 2 3 4 5", is_hidden=True),
+        judged_case(_daily_temperatures, "6\n34 80 34 30 80 60", is_hidden=True),
+    ],
+}
+
+
 STRINGS_AND_STACKS_PROBLEMS: tuple[dict[str, Any], ...] = (
     VALID_PARENTHESES,
     LONGEST_SUBSTRING,
     WORD_SEARCH,
+    LONGEST_REPEATING_CHARACTER_REPLACEMENT,
+    DAILY_TEMPERATURES,
 )

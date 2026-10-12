@@ -1335,11 +1335,490 @@ REMOVE_NTH: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Add two numbers stored as linked lists
+# --------------------------------------------------------------------------- #
+
+ADD_TWO_NUMBERS_INPUT = "3\n2 4 3\n3\n5 6 4"
+
+
+def _add_two_numbers(stdin: str) -> str:
+    """Add the two digit lists with a running carry."""
+    values = int_tokens(stdin)
+    n = values[0]
+    first = values[1 : 1 + n]
+    m = values[1 + n]
+    second = values[2 + n : 2 + n + m]
+    i = 0
+    j = 0
+    carry = 0
+    result: list[int] = []
+    while i < n or j < m or carry:
+        total = carry
+        if i < n:
+            total += first[i]
+            i += 1
+        if j < m:
+            total += second[j]
+            j += 1
+        result.append(total % 10)
+        carry = total // 10
+    if not result:
+        result.append(0)
+    return " ".join(str(digit) for digit in result)
+
+
+ADD_TWO_NUMBERS: dict[str, Any] = {
+    "slug": "add-two-numbers",
+    "title": "Add Two Numbers",
+    "summary": "Add two numbers held as linked lists of digits, least significant digit first.",
+    "difficulty": "Medium",
+    "topics": ["Linked Lists", "Two Pointers", "Math"],
+    "description": (
+        "You are given two non-negative integers, each stored as a singly linked "
+        "list where every node holds one digit and the **least significant digit "
+        "comes first**. So the number 342 is the list `2 -> 4 -> 3`.\n\n"
+        "Add the two numbers and return the sum in the same form: one digit per "
+        "node, least significant digit first. Neither number has leading zeros "
+        "except the number 0 itself."
+    ),
+    "input_format": (
+        "Line 1: `n`, the number of digits in the first number.\n"
+        "Line 2: `n` digits, least significant first.\n"
+        "Line 3: `m`, the number of digits in the second number.\n"
+        "Line 4: `m` digits, least significant first."
+    ),
+    "output_format": (
+        "Print the digits of the sum, least significant first, separated by single "
+        "spaces."
+    ),
+    "constraints": (
+        "1 <= n, m <= 1000, and every digit is 0..9. The two numbers need not have "
+        "the same number of digits, and the sum may have one more digit than the "
+        "longer input."
+    ),
+    "examples": [
+        {
+            "input": ADD_TWO_NUMBERS_INPUT,
+            "output": _add_two_numbers(ADD_TWO_NUMBERS_INPUT),
+            "explanation": "342 + 465 = 807, printed least significant first as 7, 0, 8.",
+        },
+        {
+            "input": "1\n0\n1\n0",
+            "output": _add_two_numbers("1\n0\n1\n0"),
+            "explanation": "0 + 0 = 0, so the sum is the single digit 0.",
+        },
+    ],
+    "hints": [
+        "Because the digits run from least significant to most significant, the two lists are already aligned the way addition wants them. No reversal is needed.",
+        "Walk both lists at once, one node per step, and add the two digits you are standing on. That is the schoolbook addition order, right to left.",
+        "The only extra state is a carry. Add the carry to the two digits, write `total % 10` into the result, and carry `total // 10` into the next position.",
+        "The loop has to keep going when one list is exhausted, feeding 0 for its missing digits, and it must run one final step if a carry is left over after both lists end. That final carry is what makes sums like 999 + 1 have four digits.",
+        "Use a dummy head node for the result. It removes the special case for the very first digit, so the loop body is the same for every position.",
+    ],
+    "explanation": (
+        "Least significant digit first is exactly the order schoolbook addition "
+        "processes, so the two lists can be walked from their heads together. At "
+        "each step take the current digit from each list, treating a list that has "
+        "ended as contributing 0, and add the carry from the previous position.\n\n"
+        "Write `total % 10` as the next result digit and keep `total // 10` as the "
+        "carry. The loop continues while either list still has nodes or a carry "
+        "remains, which produces the extra digit when the final sum overflows, for "
+        "example 999 + 1 = 1000. A dummy head node anchors the result so that "
+        "appending the first digit needs no special handling, and the answer is "
+        "`dummy.next`.\n\n"
+        "Each node of both inputs is visited once and at most one extra node is "
+        "produced for the final carry, so the time and space are both O(n + m)."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(n + m)",
+    "expected_space_complexity": "O(n + m)",
+    "time_limit_ms": 5_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            class Node:
+                def __init__(self, value, next=None):
+                    self.value = value
+                    self.next = next
+
+
+            def build(digits):
+                head = None
+                tail = None
+                for digit in digits:
+                    node = Node(digit)
+                    if head is None:
+                        head = node
+                        tail = node
+                    else:
+                        tail.next = node
+                        tail = node
+                return head
+
+
+            def add_two_numbers(a, b):
+                \"\"\"Return the head of the sum, least significant digit first.\"\"\"
+                return None
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                first = data[1 : 1 + n]
+                m = data[1 + n]
+                second = data[2 + n : 2 + n + m]
+                head = add_two_numbers(build(first), build(second))
+                out = []
+                node = head
+                while node is not None:
+                    out.append(str(node.value))
+                    node = node.next
+                print(" ".join(out))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            class Node {
+              constructor(value, next = null) {
+                this.value = value;
+                this.next = next;
+              }
+            }
+
+            function build(digits) {
+              let head = null;
+              let tail = null;
+              for (const digit of digits) {
+                const node = new Node(digit);
+                if (head === null) {
+                  head = node;
+                  tail = node;
+                } else {
+                  tail.next = node;
+                  tail = node;
+                }
+              }
+              return head;
+            }
+
+            function addTwoNumbers(a, b) {
+              // Return the head of the sum, least significant digit first.
+              return null;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              const first = data.slice(1, 1 + n);
+              const m = data[1 + n];
+              const second = data.slice(2 + n, 2 + n + m);
+              const head = addTwoNumbers(build(first), build(second));
+              const out = [];
+              for (let node = head; node !== null; node = node.next) {
+                out.push(node.value);
+              }
+              console.log(out.join(" "));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static class Node {
+                    int value;
+                    Node next;
+
+                    Node(int value) {
+                        this.value = value;
+                    }
+                }
+
+                static Node build(int[] digits) {
+                    Node head = null;
+                    Node tail = null;
+                    for (int digit : digits) {
+                        Node node = new Node(digit);
+                        if (head == null) {
+                            head = node;
+                            tail = node;
+                        } else {
+                            tail.next = node;
+                            tail = node;
+                        }
+                    }
+                    return head;
+                }
+
+                static Node addTwoNumbers(Node a, Node b) {
+                    // Return the head of the sum, least significant digit first.
+                    return null;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] first = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        first[i] = in.nextInt();
+                    }
+                    int m = in.nextInt();
+                    int[] second = new int[m];
+                    for (int i = 0; i < m; i += 1) {
+                        second[i] = in.nextInt();
+                    }
+                    Node head = addTwoNumbers(build(first), build(second));
+                    StringBuilder out = new StringBuilder();
+                    for (Node node = head; node != null; node = node.next) {
+                        if (out.length() > 0) {
+                            out.append(' ');
+                        }
+                        out.append(node.value);
+                    }
+                    System.out.println(out);
+                }
+            }
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            class Node:
+                def __init__(self, value, next=None):
+                    self.value = value
+                    self.next = next
+
+
+            def build(digits):
+                head = None
+                tail = None
+                for digit in digits:
+                    node = Node(digit)
+                    if head is None:
+                        head = node
+                        tail = node
+                    else:
+                        tail.next = node
+                        tail = node
+                return head
+
+
+            def add_two_numbers(a, b):
+                dummy = Node(0)
+                tail = dummy
+                carry = 0
+                while a is not None or b is not None or carry:
+                    total = carry
+                    if a is not None:
+                        total += a.value
+                        a = a.next
+                    if b is not None:
+                        total += b.value
+                        b = b.next
+                    tail.next = Node(total % 10)
+                    tail = tail.next
+                    carry = total // 10
+                return dummy.next
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                first = data[1 : 1 + n]
+                m = data[1 + n]
+                second = data[2 + n : 2 + n + m]
+                head = add_two_numbers(build(first), build(second))
+                out = []
+                node = head
+                while node is not None:
+                    out.append(str(node.value))
+                    node = node.next
+                print(" ".join(out))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            class Node {
+              constructor(value, next = null) {
+                this.value = value;
+                this.next = next;
+              }
+            }
+
+            function build(digits) {
+              let head = null;
+              let tail = null;
+              for (const digit of digits) {
+                const node = new Node(digit);
+                if (head === null) {
+                  head = node;
+                  tail = node;
+                } else {
+                  tail.next = node;
+                  tail = node;
+                }
+              }
+              return head;
+            }
+
+            function addTwoNumbers(a, b) {
+              const dummy = new Node(0);
+              let tail = dummy;
+              let carry = 0;
+              while (a !== null || b !== null || carry !== 0) {
+                let total = carry;
+                if (a !== null) {
+                  total += a.value;
+                  a = a.next;
+                }
+                if (b !== null) {
+                  total += b.value;
+                  b = b.next;
+                }
+                tail.next = new Node(total % 10);
+                tail = tail.next;
+                carry = Math.floor(total / 10);
+              }
+              return dummy.next;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              const first = data.slice(1, 1 + n);
+              const m = data[1 + n];
+              const second = data.slice(2 + n, 2 + n + m);
+              const head = addTwoNumbers(build(first), build(second));
+              const out = [];
+              for (let node = head; node !== null; node = node.next) {
+                out.push(node.value);
+              }
+              console.log(out.join(" "));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static class Node {
+                    int value;
+                    Node next;
+
+                    Node(int value) {
+                        this.value = value;
+                    }
+                }
+
+                static Node build(int[] digits) {
+                    Node head = null;
+                    Node tail = null;
+                    for (int digit : digits) {
+                        Node node = new Node(digit);
+                        if (head == null) {
+                            head = node;
+                            tail = node;
+                        } else {
+                            tail.next = node;
+                            tail = node;
+                        }
+                    }
+                    return head;
+                }
+
+                static Node addTwoNumbers(Node a, Node b) {
+                    Node dummy = new Node(0);
+                    Node tail = dummy;
+                    int carry = 0;
+                    while (a != null || b != null || carry != 0) {
+                        int total = carry;
+                        if (a != null) {
+                            total += a.value;
+                            a = a.next;
+                        }
+                        if (b != null) {
+                            total += b.value;
+                            b = b.next;
+                        }
+                        tail.next = new Node(total % 10);
+                        tail = tail.next;
+                        carry = total / 10;
+                    }
+                    return dummy.next;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] first = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        first[i] = in.nextInt();
+                    }
+                    int m = in.nextInt();
+                    int[] second = new int[m];
+                    for (int i = 0; i < m; i += 1) {
+                        second[i] = in.nextInt();
+                    }
+                    Node head = addTwoNumbers(build(first), build(second));
+                    StringBuilder out = new StringBuilder();
+                    for (Node node = head; node != null; node = node.next) {
+                        if (out.length() > 0) {
+                            out.append(' ');
+                        }
+                        out.append(node.value);
+                    }
+                    System.out.println(out);
+                }
+            }
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_add_two_numbers, ADD_TWO_NUMBERS_INPUT),
+        judged_case(_add_two_numbers, "1\n0\n1\n0"),
+        judged_case(_add_two_numbers, "3\n9 9 9\n1\n1"),
+        judged_case(_add_two_numbers, "1\n5\n1\n5"),
+        judged_case(_add_two_numbers, "3\n1 2 3\n3\n4 5 6", is_hidden=True),
+        judged_case(_add_two_numbers, "4\n9 9 9 9\n4\n9 9 9 9", is_hidden=True),
+        judged_case(_add_two_numbers, "5\n1 0 0 0 1\n2\n9 9", is_hidden=True),
+        judged_case(_add_two_numbers, "1\n9\n1\n9", is_hidden=True),
+    ],
+}
+
+
 LINKED_LISTS_PROBLEMS: list[dict[str, Any]] = [
     REVERSE_LIST,
     CYCLE_ENTRY,
     MERGE_SORTED,
     REMOVE_NTH,
+    ADD_TWO_NUMBERS,
 ]
 
 __all__ = ["LINKED_LISTS_PROBLEMS"]

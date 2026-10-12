@@ -989,8 +989,267 @@ MINIMUM_REFUELING_STOPS: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Candy
+# --------------------------------------------------------------------------- #
+
+CANDY_INPUT = "3\n1 0 2"
+
+
+def _candy(stdin: str) -> str:
+    """One pass to satisfy rising neighbours, one to satisfy falling ones."""
+    values = int_tokens(stdin)
+    n = values[0]
+    ratings = values[1 : 1 + n]
+    candies = [1] * n
+    for index in range(1, n):
+        if ratings[index] > ratings[index - 1]:
+            candies[index] = candies[index - 1] + 1
+    for index in range(n - 2, -1, -1):
+        if ratings[index] > ratings[index + 1]:
+            candies[index] = max(candies[index], candies[index + 1] + 1)
+    return str(sum(candies))
+
+
+CANDY: dict[str, Any] = {
+    "slug": "candy",
+    "title": "Candy",
+    "summary": "Hand out the fewest sweets so higher-rated children get more than their neighbours.",
+    "difficulty": "Hard",
+    "topics": ["Greedy", "Arrays"],
+    "description": (
+        "Children stand in a line, each with a rating. You must give every child at "
+        "least one sweet, and any child rated higher than an immediate neighbour "
+        "must receive more sweets than that neighbour.\n\n"
+        "Return the smallest total number of sweets that satisfies both rules. Ties "
+        "in rating impose no constraint, so equal neighbours may receive the same "
+        "number."
+    ),
+    "input_format": (
+        "Line 1: `n`, the number of children.\n"
+        "Line 2: `n` integers, the ratings from left to right."
+    ),
+    "output_format": "Print the minimum total number of sweets.",
+    "constraints": "1 <= n <= 10^5 and 0 <= rating <= 10^4.",
+    "examples": [
+        {
+            "input": CANDY_INPUT,
+            "output": _candy(CANDY_INPUT),
+            "explanation": "The ratings 1, 0, 2 are met by 2, 1, 2 sweets, for a total of 5; no smaller distribution works.",
+        },
+        {
+            "input": "3\n1 2 2",
+            "output": _candy("3\n1 2 2"),
+            "explanation": "The middle child outranks the first, but the last ties with the middle, so 1, 2, 1 is enough.",
+        },
+    ],
+    "hints": [
+        "A child's count depends on both neighbours at once, which is awkward. Try satisfying just the left-to-right comparisons first and see how far that gets.",
+        "Sweep left to right and raise a child's count above its left neighbour when its rating is higher. That satisfies every 'greater than the left' rule with the fewest sweets.",
+        "The left-to-right pass ignores the right-hand comparisons. A mirror sweep from right to left fixes them, but it must take the maximum with what is already there rather than overwrite it.",
+        "The maximum in the second pass matters. A child can need to beat both its neighbours, as in ratings 1, 2, 1, where the middle child must exceed both sides; overwriting would undo the first pass.",
+        "Equal ratings never force a gap. Leaving ties at 1 unless a strict comparison raises them is what keeps the total minimal.",
+    ],
+    "explanation": (
+        "The difficulty is that one child's count can be pulled up by neighbours on "
+        "either side. The trick is to satisfy the two directions separately, which "
+        "turns two coupled constraints into two independent sweeps.\n\n"
+        "First give every child one sweet. Sweep left to right: whenever a child's "
+        "rating exceeds its left neighbour's, set its count to the left neighbour's "
+        "count plus one. This uses the fewest sweets that satisfy every "
+        "\"greater than the left\" rule, because a rising run must increase by exactly "
+        "one at each step. Now sweep right to left and apply the same rule to the "
+        "right neighbour, but take the maximum with the existing count instead of "
+        "replacing it. The maximum is essential: a child may have to beat both "
+        "neighbours at once, and the second pass must not undo the first.\n\n"
+        "Because equal ratings impose no constraint, tying children are left at their "
+        "current value, which keeps the total as small as possible. Sweeping both "
+        "directions guarantees every strict comparison is satisfied: each child's "
+        "final count beats any lower-rated neighbour it has.\n\n"
+        "Two linear passes over the array give O(n) time, and the counts array makes "
+        "the space O(n)."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(n)",
+    "expected_space_complexity": "O(n)",
+    "time_limit_ms": 5_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "python": source(
+            """
+            import sys
+
+
+            def candy(ratings):
+                # Return the minimum total number of sweets.
+                return 0
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(candy(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function candy(ratings) {
+              // Return the minimum total number of sweets.
+              return 0;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(candy(data.slice(1, 1 + n)));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static long candy(int[] ratings) {
+                    // Return the minimum total number of sweets.
+                    return 0;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] ratings = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        ratings[i] = in.nextInt();
+                    }
+                    System.out.println(candy(ratings));
+                }
+            }
+            """
+        ),
+    },
+    "reference_solutions": {
+        "python": source(
+            """
+            import sys
+
+
+            def candy(ratings):
+                n = len(ratings)
+                candies = [1] * n
+                for index in range(1, n):
+                    if ratings[index] > ratings[index - 1]:
+                        candies[index] = candies[index - 1] + 1
+                for index in range(n - 2, -1, -1):
+                    if ratings[index] > ratings[index + 1]:
+                        candies[index] = max(candies[index], candies[index + 1] + 1)
+                return sum(candies)
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(candy(data[1 : 1 + n]))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function candy(ratings) {
+              const n = ratings.length;
+              const candies = new Array(n).fill(1);
+              for (let index = 1; index < n; index += 1) {
+                if (ratings[index] > ratings[index - 1]) {
+                  candies[index] = candies[index - 1] + 1;
+                }
+              }
+              for (let index = n - 2; index >= 0; index -= 1) {
+                if (ratings[index] > ratings[index + 1]) {
+                  candies[index] = Math.max(candies[index], candies[index + 1] + 1);
+                }
+              }
+              return candies.reduce((total, value) => total + value, 0);
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/).map(Number);
+              const n = data[0];
+              console.log(candy(data.slice(1, 1 + n)));
+            }
+
+            main();
+            """
+        ),
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static long candy(int[] ratings) {
+                    int n = ratings.length;
+                    int[] candies = new int[n];
+                    for (int index = 0; index < n; index += 1) {
+                        candies[index] = 1;
+                    }
+                    for (int index = 1; index < n; index += 1) {
+                        if (ratings[index] > ratings[index - 1]) {
+                            candies[index] = candies[index - 1] + 1;
+                        }
+                    }
+                    for (int index = n - 2; index >= 0; index -= 1) {
+                        if (ratings[index] > ratings[index + 1]) {
+                            candies[index] = Math.max(candies[index], candies[index + 1] + 1);
+                        }
+                    }
+                    long total = 0;
+                    for (int value : candies) {
+                        total += value;
+                    }
+                    return total;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] ratings = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        ratings[i] = in.nextInt();
+                    }
+                    System.out.println(candy(ratings));
+                }
+            }
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_candy, CANDY_INPUT),
+        judged_case(_candy, "3\n1 2 2"),
+        judged_case(_candy, "1\n5"),
+        judged_case(_candy, "5\n1 2 3 4 5"),
+        judged_case(_candy, "5\n5 4 3 2 1"),
+        judged_case(_candy, "4\n1 3 2 2", is_hidden=True),
+        judged_case(_candy, "6\n1 2 2 1 2 2", is_hidden=True),
+        judged_case(_candy, "4\n1 2 1 2", is_hidden=True),
+    ],
+}
+
+
 GREEDY_PROBLEMS: tuple[dict[str, Any], ...] = (
     ASSIGN_COOKIES,
     GAS_STATION,
     MINIMUM_REFUELING_STOPS,
+    CANDY,
 )

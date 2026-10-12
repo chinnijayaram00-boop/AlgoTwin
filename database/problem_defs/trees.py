@@ -1539,11 +1539,399 @@ TREE_SYMMETRY: dict[str, Any] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Diameter of a binary tree
+# --------------------------------------------------------------------------- #
+
+DIAMETER_INPUT = "5\n1 2 3 4 5"
+
+
+def _diameter(stdin: str) -> str:
+    """The longest path either bends at a node or folds into one subtree."""
+    root = _build(_split(stdin)[0])
+    best = 0
+
+    def depth(node: _Node | None) -> int:
+        nonlocal best
+        if node is None:
+            return 0
+        left = depth(node.left)
+        right = depth(node.right)
+        best = max(best, left + right)
+        return 1 + max(left, right)
+
+    depth(root)
+    return str(best)
+
+
+DIAMETER_OF_BINARY_TREE: dict[str, Any] = {
+    "slug": "diameter-of-binary-tree",
+    "title": "Diameter of a Binary Tree",
+    "summary": "Find the number of edges on the longest path between any two nodes.",
+    "difficulty": "Easy",
+    "topics": ["Trees", "Depth-First Search", "Recursion", "Binary Trees"],
+    "description": (
+        "You are given a binary tree in level order, with `0` marking an absent "
+        "node. The diameter is the number of edges on the longest path between any "
+        "two nodes in the tree.\n\n"
+        "The path does not have to pass through the root, so the answer is the "
+        "largest such count over every node of the tree. A single node counts as a "
+        "path of length 0."
+    ),
+    "input_format": (
+        "Line 1: `n`, the number of level-order slots.\n"
+        "Line 2: `n` integers, the values in level order, where `0` means the slot "
+        "holds no node."
+    ),
+    "output_format": "Print the number of edges on the longest path between any two nodes.",
+    "constraints": (
+        "1 <= n <= 10^5. Values are distinct and in 1..10^9, and every non-zero "
+        "slot has a non-zero parent, so the level-order array always describes a "
+        "tree."
+    ),
+    "examples": [
+        {
+            "input": DIAMETER_INPUT,
+            "output": _diameter(DIAMETER_INPUT),
+            "explanation": "The longest path is 4 -> 2 -> 1 -> 3 (or 5 -> 2 -> 1 -> 3), which uses 3 edges.",
+        },
+        {
+            "input": "7\n1 2 3 4 5 0 6",
+            "output": _diameter("7\n1 2 3 4 5 0 6"),
+            "explanation": "The path 5 -> 2 -> 1 -> 3 -> 6 crosses the root and uses 4 edges.",
+        },
+    ],
+    "hints": [
+        "The longest path between two nodes always bends at some highest node, then goes down into two different subtrees. Which quantity at that node decides the length?",
+        "For a node, a path through it is as long as the height of its left subtree plus the height of its right subtree. The diameter is the largest such sum over all nodes.",
+        "Do not compute heights separately for every node; that would be O(n^2). Return the height of a subtree up the recursion and, on the way, update a running best with `left + right` at each node.",
+        "The answer is a number of edges, so a leaf has height 1 and contributes 0 to the diameter. Returning 0 for a missing child is what makes a single node have diameter 0.",
+        "The largest path may avoid the root entirely, which is why the best is updated at every node rather than only at the root. A path that stays inside one subtree is found when the recursion visits that subtree's top node.",
+    ],
+    "explanation": (
+        "Every path between two nodes has a highest point, the node where it turns "
+        "from going up to going down. At that node the path runs down into one of "
+        "its subtrees and down into the other, so its length is the height of the "
+        "left subtree plus the height of the right subtree. The diameter is the "
+        "largest such sum over all nodes.\n\n"
+        "A single post-order pass computes both numbers at once. `depth(node)` "
+        "returns the height of the subtree rooted at that node, which is 1 plus the "
+        "larger of the two child heights, or 0 for a missing node. Before returning, "
+        "it updates a running maximum with `left + right`, the longest path that "
+        "turns at this node. Because the maximum is taken at every node, a path that "
+        "lies entirely inside one subtree is still found when that subtree's own top "
+        "node is visited.\n\n"
+        "Computing a height per node from scratch would be O(n^2); returning the "
+        "height up the recursion makes each node's work constant, so the whole "
+        "traversal is O(n) time. The recursion holds one frame per level, so the "
+        "space is O(h), which is O(n) for a degenerate tree."
+    ),
+    "supported_languages": ["python", "javascript", "java"],
+    "expected_time_complexity": "O(n)",
+    "expected_space_complexity": "O(h)",
+    "time_limit_ms": 5_000,
+    "memory_limit_mb": 256,
+    "starter_code": {
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static class TreeNode {
+                    int value;
+                    TreeNode left;
+                    TreeNode right;
+
+                    TreeNode(int value) {
+                        this.value = value;
+                    }
+                }
+
+                static TreeNode build(int[] values) {
+                    // Expand the level-order array into a tree. 0 means no node.
+                    return null;
+                }
+
+                static int diameter(TreeNode root) {
+                    // Return the number of edges on the longest path between any two nodes.
+                    return 0;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] values = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        values[i] = in.nextInt();
+                    }
+                    System.out.println(diameter(build(values)));
+                }
+            }
+            """
+        ),
+        "python": source(
+            """
+            import sys
+
+
+            class TreeNode:
+                def __init__(self, value):
+                    self.value = value
+                    self.left = None
+                    self.right = None
+
+
+            def build(values):
+                # Expand the level-order array into a tree. 0 means no node.
+                return None
+
+
+            def diameter(root):
+                # Return the number of edges on the longest path between any two nodes.
+                return 0
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(diameter(build(data[1 : 1 + n])))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function build(values) {
+              // Expand the level-order array into a tree. 0 means no node.
+              return null;
+            }
+
+            function diameter(root) {
+              // Return the number of edges on the longest path between any two nodes.
+              return 0;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/);
+              const n = Number(data[0]);
+              const values = data.slice(1, 1 + n).map(Number);
+              console.log(diameter(build(values)));
+            }
+
+            main();
+            """
+        ),
+    },
+    "reference_solutions": {
+        "java": source(
+            """
+            import java.util.Scanner;
+
+            public class Main {
+                static class TreeNode {
+                    int value;
+                    TreeNode left;
+                    TreeNode right;
+
+                    TreeNode(int value) {
+                        this.value = value;
+                    }
+                }
+
+                static TreeNode build(int[] values) {
+                    if (values.length == 0 || values[0] == 0) {
+                        return null;
+                    }
+                    TreeNode[] nodes = new TreeNode[values.length];
+                    nodes[0] = new TreeNode(values[0]);
+                    for (int index = 1; index < values.length; index += 1) {
+                        if (values[index] == 0) {
+                            continue;
+                        }
+                        TreeNode parent = nodes[(index - 1) / 2];
+                        if (parent == null) {
+                            continue;
+                        }
+                        TreeNode node = new TreeNode(values[index]);
+                        if (index % 2 == 1) {
+                            parent.left = node;
+                        } else {
+                            parent.right = node;
+                        }
+                        nodes[index] = node;
+                    }
+                    return nodes[0];
+                }
+
+                static int best;
+
+                static int depth(TreeNode node) {
+                    if (node == null) {
+                        return 0;
+                    }
+                    int left = depth(node.left);
+                    int right = depth(node.right);
+                    if (left + right > best) {
+                        best = left + right;
+                    }
+                    return 1 + Math.max(left, right);
+                }
+
+                static int diameter(TreeNode root) {
+                    best = 0;
+                    depth(root);
+                    return best;
+                }
+
+                public static void main(String[] args) {
+                    Scanner in = new Scanner(System.in);
+                    int n = in.nextInt();
+                    int[] values = new int[n];
+                    for (int i = 0; i < n; i += 1) {
+                        values[i] = in.nextInt();
+                    }
+                    System.out.println(diameter(build(values)));
+                }
+            }
+            """
+        ),
+        "python": source(
+            """
+            import sys
+
+
+            class TreeNode:
+                def __init__(self, value):
+                    self.value = value
+                    self.left = None
+                    self.right = None
+
+
+            def build(values):
+                if not values or values[0] == 0:
+                    return None
+                nodes = [None] * len(values)
+                nodes[0] = TreeNode(values[0])
+                for index in range(1, len(values)):
+                    if values[index] == 0:
+                        continue
+                    parent = nodes[(index - 1) // 2]
+                    if parent is None:
+                        continue
+                    node = TreeNode(values[index])
+                    if index % 2 == 1:
+                        parent.left = node
+                    else:
+                        parent.right = node
+                    nodes[index] = node
+                return nodes[0]
+
+
+            def diameter(root):
+                best = 0
+
+                def depth(node):
+                    nonlocal best
+                    if node is None:
+                        return 0
+                    left = depth(node.left)
+                    right = depth(node.right)
+                    best = max(best, left + right)
+                    return 1 + max(left, right)
+
+                depth(root)
+                return best
+
+
+            def main():
+                data = [int(token) for token in sys.stdin.read().split()]
+                n = data[0]
+                print(diameter(build(data[1 : 1 + n])))
+
+
+            if __name__ == "__main__":
+                main()
+            """
+        ),
+        "javascript": source(
+            """
+            const fs = require("fs");
+
+            function build(values) {
+              if (values.length === 0 || values[0] === 0) {
+                return null;
+              }
+              const nodes = new Array(values.length).fill(null);
+              nodes[0] = { value: values[0], left: null, right: null };
+              for (let index = 1; index < values.length; index += 1) {
+                if (values[index] === 0) {
+                  continue;
+                }
+                const parent = nodes[Math.floor((index - 1) / 2)];
+                if (parent === null) {
+                  continue;
+                }
+                const node = { value: values[index], left: null, right: null };
+                if (index % 2 === 1) {
+                  parent.left = node;
+                } else {
+                  parent.right = node;
+                }
+                nodes[index] = node;
+              }
+              return nodes[0];
+            }
+
+            function diameter(root) {
+              let best = 0;
+
+              function depth(node) {
+                if (node === null) {
+                  return 0;
+                }
+                const left = depth(node.left);
+                const right = depth(node.right);
+                best = Math.max(best, left + right);
+                return 1 + Math.max(left, right);
+              }
+
+              depth(root);
+              return best;
+            }
+
+            function main() {
+              const data = fs.readFileSync(0, "utf8").trim().split(/\\s+/);
+              const n = Number(data[0]);
+              const values = data.slice(1, 1 + n).map(Number);
+              console.log(diameter(build(values)));
+            }
+
+            main();
+            """
+        ),
+    },
+    "test_cases": [
+        judged_case(_diameter, DIAMETER_INPUT),
+        judged_case(_diameter, "2\n1 2"),
+        judged_case(_diameter, "1\n1"),
+        judged_case(_diameter, "7\n1 2 3 4 5 0 6"),
+        judged_case(_diameter, "3\n1 2 3", is_hidden=True),
+        judged_case(_diameter, "6\n1 2 3 0 4 0", is_hidden=True),
+        judged_case(_diameter, "7\n1 2 3 4 5 6 7", is_hidden=True),
+    ],
+}
+
+
 TREES_PROBLEMS: list[dict[str, Any]] = [
     BST_VALID,
     LOWEST_COMMON_ANCESTOR,
     MAX_PATH_SUM,
     TREE_SYMMETRY,
+    DIAMETER_OF_BINARY_TREE,
 ]
 
 __all__ = ["TREES_PROBLEMS"]
