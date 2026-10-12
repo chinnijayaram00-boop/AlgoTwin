@@ -67,7 +67,7 @@ const PRESENTATION = {
   failed: { label: "Failed", tone: "hard", description: "The judge could not grade this" },
 };
 
-const LANGUAGE_LABELS = { javascript: "JavaScript", python: "Python" };
+const LANGUAGE_LABELS = { javascript: "JavaScript", python: "Python", java: "Java" };
 
 export function isSubmissionStatus(value) {
   return SUBMISSION_STATUSES.includes(value);

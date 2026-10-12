@@ -11,6 +11,7 @@ import WorkspacePage from "../../pages/WorkspacePage";
 import { progressService } from "../progress/progressService";
 import { submissionService } from "./submissionService";
 import { useProblemSubmissions, useSubmissionList } from "./useSubmissions";
+import { SUPPORTED_LANGUAGES, languageLabel } from "./submissionStatus";
 import { problemApi } from "../../services/platformService";
 import { useAuth } from "../auth/useAuth";
 import { judgeService } from "../judge/judgeService";
@@ -140,6 +141,27 @@ async function renderWorkspace() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("languageLabel", () => {
+  it("gives every language the platform offers a proper display name", () => {
+    // The history's language filter buttons are drawn from SUPPORTED_LANGUAGES and
+    // labelled with this map, so a language the platform offers but the map
+    // forgets renders its bare id -- "java" sitting beside "Python" and
+    // "JavaScript". Every id must therefore resolve to something other than
+    // itself.
+    for (const id of SUPPORTED_LANGUAGES) {
+      const label = languageLabel(id);
+      expect(label).not.toBe(id);
+      expect(label).toBe(label[0].toUpperCase() + label.slice(1));
+    }
+    expect(languageLabel("java")).toBe("Java");
+  });
+
+  it("degrades an unknown language to its id rather than rendering blank", () => {
+    expect(languageLabel("cobol")).toBe("cobol");
+    expect(languageLabel("")).toBe("—");
+  });
 });
 
 describe("SubmissionStatusPill", () => {

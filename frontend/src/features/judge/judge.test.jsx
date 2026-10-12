@@ -11,6 +11,7 @@ import {
   RUN_NOTE,
   formatCaseCounts,
   formatPeakMemory,
+  languageLabel,
   verdictLabel,
   verdictTone,
 } from "./judgeStatus";
@@ -204,6 +205,15 @@ describe("the verdict vocabulary", () => {
     expect(formatPeakMemory(18.25)).toBe("18.3 MB");
     expect(formatPeakMemory(null)).toBeNull();
     expect(formatPeakMemory(0)).toBeNull();
+  });
+
+  it("names every runnable language, not just the two oldest", () => {
+    // The workspace falls back to this map for a language tab when the registry
+    // cannot be read, so a language the platform runs but the map forgets would
+    // draw a tab labelled with its raw id -- "java" instead of "Java".
+    expect(languageLabel("javascript")).toBe("JavaScript");
+    expect(languageLabel("python")).toBe("Python");
+    expect(languageLabel("java")).toBe("Java");
   });
 });
 

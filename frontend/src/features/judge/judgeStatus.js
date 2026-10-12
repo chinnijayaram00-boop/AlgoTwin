@@ -138,6 +138,6 @@ export function formatPeakMemory(mb) {
 }
 
 export function languageLabel(language) {
-  const labels = { javascript: "JavaScript", python: "Python" };
+  const labels = { javascript: "JavaScript", python: "Python", java: "Java" };
   return labels[language] || language || "—";
 }
