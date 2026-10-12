@@ -28,7 +28,7 @@ from backend.app.core.security import (
     validate_jwt_configuration,
     verify_password,
 )
-from backend.tests.conftest import TEST_JWT_SECRET
+from backend.tests.conftest import TEST_JWT_ALGORITHM, TEST_JWT_SECRET
 
 REGISTRATION = {
     "name": "Test Learner",
@@ -355,6 +355,34 @@ def test_login_rejects_account_with_unusable_password_hash(
     assert response.status_code == 401
 
 
+def test_unknown_account_login_does_not_hash_a_fresh_decoy_per_request(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The unknown-account path must not compute an Argon2 hash inside the request.
+
+    Login used to run ``hash_password(<decoy>)`` and then verify against it, so a
+    missing account cost two Argon2id operations while a wrong password cost one:
+    a timing hint that the account does not exist, and double the compute an
+    unauthenticated caller could force per attempt. The decoy hash is built once at
+    import, so the handler must never call ``hash_password`` while logging in.
+    """
+    from backend.app.api.routes import auth as auth_routes
+
+    def _unexpected_hash(*_args, **_kwargs):
+        raise AssertionError("login must not hash a fresh decoy per request")
+
+    monkeypatch.setattr(auth_routes, "hash_password", _unexpected_hash)
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "nobody@example.com", "password": REGISTRATION["password"]},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password."
+
+
 # -------------------------------------------------------------------- jwt flows
 
 
@@ -492,6 +520,67 @@ def test_token_signed_with_another_algorithm_is_rejected(client_with_known_secre
 
     assert client_with_known_secret.get(PROTECTED, headers=auth(unsigned)).status_code == 401
     assert TEST_JWT_SECRET  # the configured secret is never accepted as "none"
+
+
+def test_token_signed_with_a_different_hmac_algorithm_is_rejected(
+    client_with_known_secret: TestClient,
+) -> None:
+    """Algorithm confusion: a stronger HMAC signature is still the wrong one.
+
+    The deployment pins HS256, so a token signed with the *same* secret but HS512
+    must not be accepted just because its signature is otherwise valid.
+    """
+    register(client_with_known_secret)
+    forged = jwt.encode(
+        {
+            "sub": "1",
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+            "type": "access",
+        },
+        TEST_JWT_SECRET,
+        algorithm="HS512",
+    )
+
+    assert client_with_known_secret.get(PROTECTED, headers=auth(forged)).status_code == 401
+
+
+@pytest.mark.parametrize("dropped", ["sub", "iat", "exp"])
+def test_token_missing_a_required_claim_is_rejected(
+    client_with_known_secret: TestClient,
+    dropped: str,
+) -> None:
+    """Signature is not enough: ``sub``/``iat``/``exp`` are all required."""
+    claims = {
+        "sub": "1",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+        "type": "access",
+    }
+    del claims[dropped]
+    token = jwt.encode(claims, TEST_JWT_SECRET, algorithm=TEST_JWT_ALGORITHM)
+
+    assert client_with_known_secret.get(PROTECTED, headers=auth(token)).status_code == 401
+
+
+@pytest.mark.parametrize("subject", ["not-a-number", "1.5", "0", "-5", ""])
+def test_token_with_an_invalid_subject_is_rejected(
+    client_with_known_secret: TestClient,
+    subject: str,
+) -> None:
+    """A subject that is not a positive integer can never name a real user."""
+    token = jwt.encode(
+        {
+            "sub": subject,
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+            "type": "access",
+        },
+        TEST_JWT_SECRET,
+        algorithm=TEST_JWT_ALGORITHM,
+    )
+
+    assert client_with_known_secret.get(PROTECTED, headers=auth(token)).status_code == 401
 
 
 def test_tampered_token_payload_is_rejected(client: TestClient) -> None:

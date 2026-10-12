@@ -24,6 +24,17 @@ from backend.app.schemas.auth import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+#: A precomputed Argon2id hash of a throwaway password.
+#:
+#: Login verifies against this decoy when the address is unknown, so a missing
+#: account and a wrong password each spend exactly one Argon2id verify. Hashing a
+#: fresh decoy inside the request instead would add a *second* Argon2id operation
+#: to that path, making a missing account measurably slower than a wrong password
+#: -- a timing hint that the account does not exist -- and doubling the compute an
+#: unauthenticated caller can make the server spend per attempt. Computing it once
+#: at import keeps the two paths' cost equal.
+_DECOY_PASSWORD_HASH = hash_password("algotwin-timing-equalizer")
+
 
 def _configuration_error(error: AuthenticationConfigurationError) -> HTTPException:
     return HTTPException(
@@ -112,8 +123,9 @@ def login(
 
     user = _find_user_by_email(db, payload.email)
     if user is None:
-        # Hash anyway so a missing account and a wrong password cost the same.
-        verify_password(payload.password, hash_password("algotwin-timing-equalizer"))
+        # Verify against the precomputed decoy so a missing account costs one
+        # Argon2id verify, exactly like a wrong password -- no timing tell.
+        verify_password(payload.password, _DECOY_PASSWORD_HASH)
         throttle.record_login_failure(request, payload.email)
         raise _unauthorized()
     if not verify_password(payload.password, user.password_hash):
