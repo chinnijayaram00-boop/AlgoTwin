@@ -177,6 +177,55 @@ describe("AuthProvider session restore", () => {
 
 // ------------------------------------------------------------- routing guards
 
+describe("LoginPage validation", () => {
+  it("blocks submission when the email is missing or malformed", async () => {
+    const actor = userEvent.setup();
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/login"]}>
+          <Routes>
+            <Route element={<LoginPage />} path="/login" />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    await actor.type(await screen.findByLabelText("Email"), "not-an-email");
+    await actor.type(screen.getByLabelText("Password"), "correct-horse-battery-staple");
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument();
+    expect(authService.login).not.toHaveBeenCalled();
+
+    await actor.clear(screen.getByLabelText("Email"));
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("Enter your email address.")).toBeInTheDocument();
+    expect(authService.login).not.toHaveBeenCalled();
+  });
+
+  it("blocks submission when the password is blank", async () => {
+    const actor = userEvent.setup();
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/login"]}>
+          <Routes>
+            <Route element={<LoginPage />} path="/login" />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    await actor.type(await screen.findByLabelText("Email"), PROFILE.email);
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("Enter your password to continue.")).toBeInTheDocument();
+    expect(authService.login).not.toHaveBeenCalled();
+  });
+});
+
 describe("route protection", () => {
   it("redirects anonymous visitors from a protected page to the login form", async () => {
     withProvider(<App />, { initialEntries: ["/dashboard"] });

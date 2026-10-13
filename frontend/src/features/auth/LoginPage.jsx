@@ -7,6 +7,23 @@ import { authService } from "./authService";
 import AuthLayout from "./AuthLayout";
 import { useAuth } from "./useAuth";
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateLogin({ email, password }) {
+  const normalizedEmail = email.trim();
+
+  if (!normalizedEmail) {
+    return "Enter your email address.";
+  }
+  if (!EMAIL_PATTERN.test(normalizedEmail)) {
+    return "Enter a valid email address.";
+  }
+  if (!password.trim()) {
+    return "Enter your password to continue.";
+  }
+  return "";
+}
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -19,10 +36,18 @@ export default function LoginPage() {
 
   function handleChange(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+    setError("");
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    const message = validateLogin(form);
+    if (message) {
+      setError(message);
+      return;
+    }
+
     setError("");
     setSubmitting(true);
     try {
@@ -48,7 +73,7 @@ export default function LoginPage() {
       }
       title="Sign in to your workspace."
     >
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <form className="auth-form" noValidate onSubmit={handleSubmit}>
         <label className="auth-field">
           <span>Email</span>
           <input
