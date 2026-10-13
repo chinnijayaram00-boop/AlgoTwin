@@ -23,6 +23,18 @@ os.environ.setdefault("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 # machine it runs on.
 os.environ["APP_NAME"] = "ALgotwin API"
 
+# Execution is OFF by default in production, and the isolation gate refuses to
+# run learner code without an explicit acknowledgment. This suite's whole job is
+# to exercise the judge, so the harness makes the same explicit double opt-in a
+# trusted deployment would: execution intended on, AND the insecure-native
+# acknowledgment set because the test host is trusted. Both are set with
+# environment variables before the application imports (the same pattern as
+# JWT_SECRET_KEY above), because `get_settings` is cached and reads the
+# environment once, at first import. The safe defaults themselves are still
+# asserted in `test_execution_gate.py`, which deletes these variables first.
+os.environ["EXECUTION_ENABLED"] = "true"
+os.environ["EXECUTION_ALLOW_INSECURE_NATIVE"] = "true"
+
 TEST_JWT_SECRET = "test-only-jwt-secret-0123456789abcdef"
 TEST_JWT_ALGORITHM = "HS256"
 PASSWORD = "correct-horse-battery-staple"

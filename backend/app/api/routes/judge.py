@@ -30,6 +30,7 @@ from fastapi import APIRouter, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import AppSettings, CurrentUser, DbSession
+from backend.app.judge.isolation import execution_available
 from backend.app.schemas.judge import (
     CodeRunRequest,
     ProblemRunResponse,
@@ -65,10 +66,17 @@ def list_runnable_languages(settings: AppSettings) -> RunLanguagesResponse:
     The editor reads this to decide which tabs to draw. Reporting a language the
     runner will refuse is what produced the Java tab that ended in a 422, so the
     list comes from the same registry the judge uses.
+
+    ``execution_enabled`` reports the *effective* answer, not just the operator's
+    intent: intent plus the isolation gate from
+    :func:`backend.app.judge.isolation.execution_available`. A deployment that
+    switched execution on but configured no isolation backend reports ``false``
+    here, which keeps the editor from offering a Run button that would 503.
     """
+    available, _ = execution_available(settings)
     return RunLanguagesResponse(
         items=judge_service.describe_languages(settings),
-        execution_enabled=settings.execution_enabled,
+        execution_enabled=available,
     )
 
 
@@ -100,6 +108,13 @@ def run_against_problem(
             )
         return judge_service.run_visible_cases(problem, language, payload.source_code, settings)
     except judge_service.ExecutionDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from error
+    except judge_service.ExecutionIsolationUnavailableError as error:
+        # The deployment has execution switched on but no verified isolation
+        # backend for untrusted code. Nothing runs; this is the required refusal
+        # rather than a silent, un-isolated fallback.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from error

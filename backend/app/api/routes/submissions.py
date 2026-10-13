@@ -30,6 +30,7 @@ from backend.app.schemas.submissions import (
 from backend.app.services import submission_service
 from backend.app.services.judge_service import (
     ExecutionDisabledError,
+    ExecutionIsolationUnavailableError,
     NoTestCasesError,
     UnsupportedLanguageError,
     judge_submission,
@@ -111,6 +112,13 @@ def create_submission(
         # judge raised it. This is not the learner's fault and not a 4xx: the
         # server simply cannot run the code. The stored row stays ``queued``,
         # which honestly means "stored, not judged".
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from error
+    except ExecutionIsolationUnavailableError as error:
+        # The deployment has execution switched on but no verified isolation
+        # backend for untrusted code. Nothing runs and the row stays ``queued``;
+        # this is the required refusal rather than a silent, un-isolated run.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from error

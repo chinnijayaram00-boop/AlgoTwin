@@ -33,6 +33,7 @@ from backend.app.schemas.interview import (
 from backend.app.services import interview_service
 from backend.app.services.judge_service import (
     ExecutionDisabledError,
+    ExecutionIsolationUnavailableError,
     NoTestCasesError,
     UnsupportedLanguageError,
 )
@@ -217,6 +218,12 @@ def submit_my_answer(
     except interview_service.SessionStateError as error:
         raise _conflict(str(error)) from error
     except ExecutionDisabledError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from error
+    except ExecutionIsolationUnavailableError as error:
+        # Execution is intended on but the deployment has no verified isolation
+        # backend for untrusted code, so nothing is judged.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from error

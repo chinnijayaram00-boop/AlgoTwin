@@ -22,6 +22,7 @@ from database.models import Problem
 from database.models.submission import SubmissionStatus
 
 from backend.app.judge import judge as judge_engine
+from backend.app.judge.isolation import execution_available
 from backend.app.judge.judge import NoTestCasesError
 from backend.app.judge.languages import (
     LanguageSpec,
@@ -54,12 +55,23 @@ class ExecutionDisabledError(RuntimeError):
     """
 
 
-def _require_execution_enabled(settings) -> None:
-    if not settings.execution_enabled:
-        raise ExecutionDisabledError(
-            "Code execution is disabled on this deployment. Set EXECUTION_ENABLED=true "
-            "to offer it."
-        )
+class ExecutionIsolationUnavailableError(RuntimeError):
+    """Execution is intended on, but no verified isolation backend is configured.
+
+    The run routes turn this into a 503 too, and no worker is started. It is
+    deliberately distinct from :class:`ExecutionDisabledError`: the operator
+    has *asked* for execution and the deployment still cannot run learner code
+    safely, and the message says which configuration decision is missing.
+    """
+
+
+def _require_execution_available(settings) -> None:
+    available, reason = execution_available(settings)
+    if available:
+        return
+    if not getattr(settings, "execution_enabled", False):
+        raise ExecutionDisabledError(f"{reason} To offer it, set EXECUTION_ENABLED=true and configure a verified isolation backend (EXECUTION_ISOLATION), or set EXECUTION_ALLOW_INSECURE_NATIVE=true for a trusted environment only.")
+    raise ExecutionIsolationUnavailableError(reason)
 
 
 def resolve_language(problem: Problem, language_id: str, settings=None) -> LanguageSpec:
@@ -177,7 +189,7 @@ def run_visible_cases(
     produced an empty result would look identical to a program that passed
     everything.
     """
-    _require_execution_enabled(settings)
+    _require_execution_available(settings)
     cases = problem.visible_test_cases()
     report = judge_engine.judge(
         language=language,
@@ -220,7 +232,7 @@ def run_adhoc_input(
     rather than grading it -- because hiding a crash behind a null verdict would
     just be a worse lie.
     """
-    _require_execution_enabled(settings)
+    _require_execution_available(settings)
     outcome = judge_engine.run_uncounted(
         language=language,
         source_code=source_code,
@@ -335,7 +347,7 @@ def judge_submission(
     that failed to run, timed out, or printed the wrong answer records exactly
     that, and no path here ever substitutes ``accepted``.
     """
-    _require_execution_enabled(settings)
+    _require_execution_available(settings)
     cases = list(problem.test_cases or [])
     report = judge_engine.judge(
         language=language,
@@ -367,6 +379,7 @@ def describe_languages(settings=None) -> list[dict[str, Any]]:
 
 __all__ = [
     "ExecutionDisabledError",
+    "ExecutionIsolationUnavailableError",
     "LanguageUnavailableError",
     "NoTestCasesError",
     "RunOutcome",

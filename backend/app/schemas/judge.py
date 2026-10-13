@@ -161,6 +161,10 @@ class RunLanguagesResponse(BaseModel):
     """The languages this deployment can run right now."""
 
     items: list[dict[str, str]] = Field(default_factory=list)
+    #: Whether execution is actually available this deployment, which is the
+    #: operator's intent AND the isolation gate: false unless a verified
+    #: isolation backend is configured or the insecure-native acknowledgment
+    #: is set. The editor uses this to decide whether to offer a Run button.
     execution_enabled: bool
 
 

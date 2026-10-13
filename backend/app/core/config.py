@@ -48,11 +48,17 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./algotwin.db"
     auto_create_tables: bool = True
     # The catalog and the demo account are separate switches on purpose. The
-    # catalog is the product: a deployment that sets `SEED_DEMO_DATA=false` to
-    # stop shipping a published password must still get its problems, otherwise it
-    # would serve an empty catalog and a judge with nothing to run.
+    # catalog is the product and ships by default; the demo account is the
+    # opposite of one.
+    #
+    # `seed_demo_data` is OFF by default because the demo account ships a
+    # published, well-known password (`learner@algotwin.dev`, see
+    # `database/seed.py`). Any deployment that lets it be seeded without an
+    # explicit decision is handing out a login to everyone -- and the earlier
+    # default created that account on every fresh install. An operator who wants
+    # the demo login must set `SEED_DEMO_DATA=true` themselves.
     seed_problem_catalog: bool = True
-    seed_demo_data: bool = True
+    seed_demo_data: bool = False
     cors_origins: str = DEFAULT_CORS_ORIGINS
     # AI provider boundary. `ai_provider` is resolved through exactly one
     # registry (`backend.app.ai.registry`), so the name here decides the provider
@@ -113,13 +119,44 @@ class Settings(BaseSettings):
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1, le=10080)
 
-    # Code execution. `EXECUTION_ENABLED=false` is the kill switch: it answers the
-    # run endpoint with 503 and starts no worker process at all, which is what a
-    # deployment wants if the host it runs on cannot offer the isolation a judge
-    # needs. The two per-language switches exist because the answer to "can this
+    # Code execution. This is safe-by-default on purpose.
+    #
+    # `EXECUTION_ENABLED` is now OFF by default. Combined with
+    # `EXECUTION_ISOLATION` and `EXECUTION_ALLOW_INSECURE_NATIVE`, it is not a
+    # single kill switch any more but the first of three decisions a deployment
+    # must make before it runs a learner's code:
+    #
+    # * it must not have been switched off (this flag),
+    # * it must name an isolation backend that is actually configured and
+    #   verified for untrusted code (`EXECUTION_ISOLATION`), and
+    # * unless that backend guarantees isolation, it must carry an explicit
+    #   acknowledgment that code runs without OS-level isolation
+    #   (`EXECUTION_ALLOW_INSECURE_NATIVE`) -- for a trusted host or a test
+    #   runner, never for a public deployment.
+    #
+    # With the safe defaults (off / `none` / false) the run and submission routes
+    # answer 503 and start no worker process at all. There is deliberately no
+    # silent fallback: a deployment that enables execution but configures no
+    # isolation backend gets a refusal, not a "well, almost isolated" run.
+    #
+    # The two per-language switches exist because the answer to "can this
     # machine run Java" is host-specific, and a language that is switched off must
     # not be offered to the editor -- the same rule the catalog validator enforces.
-    execution_enabled: bool = True
+    execution_enabled: bool = False
+    # The isolation backend this deployment claims to provide for learner code.
+    # Only `none` is registered in the current codebase, and `none` is explicit
+    # about what it is: the native process supervisor enforces wall-clock and
+    # output ceilings but provides NO OS-level isolation (no container, no
+    # sandbox, no memory/CPU limits on Windows, no network or filesystem
+    # confinement). It is safe for running a platform's own reference
+    # implementations, never for untrusted code without an explicit operator
+    # acknowledgment. Verified containment backends will be registered here.
+    execution_isolation: str = "none"
+    # Explicit acknowledgment that learner code runs with the native supervisor
+    # and no OS-level isolation. OFF by default. Set it (and run it somewhere
+    # trusted) only if you have decided, nameable reason in hand, that running
+    # un-isolated student code on this host is acceptable.
+    execution_allow_insecure_native: bool = False
     execution_python: bool = True
     execution_javascript: bool = True
     # Java is switched separately for a sharper reason than the other two: it

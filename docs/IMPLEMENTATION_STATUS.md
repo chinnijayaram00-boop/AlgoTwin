@@ -153,9 +153,13 @@ output.
   It reports the exit code and output without inventing a correctness claim.
 - Nothing persists. No submission, no attempt, no progress write.
 
-Settings: `EXECUTION_ENABLED` (kill switch, answers `503`), `EXECUTION_PYTHON`,
-`EXECUTION_JAVASCRIPT`, `EXECUTION_JAVA`, and `MAX_JUDGE_WALL_CLOCK_MS` as the
-per-request ceiling.
+Settings: execution is off by default. `EXECUTION_ENABLED` (the operator's
+intent), `EXECUTION_ISOLATION` (the configured isolation backend; only `none` is
+registered, and it provides no OS-level isolation), and
+`EXECUTION_ALLOW_INSECURE_NATIVE` (the explicit acknowledgment required before
+execution actually runs) together answer `503` until a deployment records all
+three decisions. `EXECUTION_PYTHON`, `EXECUTION_JAVASCRIPT`, `EXECUTION_JAVA`,
+and `MAX_JUDGE_WALL_CLOCK_MS` (the per-request ceiling) round out the section.
 
 ## Judged submissions
 

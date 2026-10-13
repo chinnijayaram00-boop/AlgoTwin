@@ -275,7 +275,7 @@ Per case the job receives the source, the input, and the limits. It does not rec
 
 ### Limits and settings
 
-- `EXECUTION_ENABLED=false` is the kill switch: `/judge/languages` reports `execution_enabled: false` and `/run` answers `503` without starting a process.
+- Execution is **off by default**. `EXECUTION_ENABLED` is the operator's intent, but intent alone is not enough: a run or submission still answers `503` unless the deployment has also decided how learner code may be confined. `EXECUTION_ISOLATION` names the backend — the only registered value is `none`, the native supervisor, which provides no OS-level isolation — and for `none` the deployment must additionally set `EXECUTION_ALLOW_INSECURE_NATIVE=true`, an explicit acknowledgment that code runs without OS-level containment. `/judge/languages` reports `execution_enabled: false` until all three decisions are made, and nothing falls back to a silent, un-isolated run.
 - `EXECUTION_PYTHON`, `EXECUTION_JAVASCRIPT`, and `EXECUTION_JAVA` hide a language from the registry, which the workspace follows.
 - A problem's own `time_limit_ms` and `memory_limit_mb` are clamped to the model ceilings. The per-case time limit is additionally clamped to `MAX_JUDGE_WALL_CLOCK_MS`, the ceiling on one request's wall clock, so a request cannot multiply the problem's limit by its case count.
 
